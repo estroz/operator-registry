@@ -13,7 +13,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	utilerrors "k8s.io/apimachinery/pkg/util/errors"
 
-	"github.com/operator-framework/operator-registry/pkg/registry"
+	"github.com/operator-framework/api/pkg/registry/manifests"
 )
 
 const (
@@ -28,7 +28,7 @@ const (
 // entries under "packages" will be parsed as Packages
 type ConfigMapLoader struct {
 	log           *logrus.Entry
-	store         registry.Load
+	store         Load
 	configMapData map[string]string
 	crds          map[registry.APIKey]*unstructured.Unstructured
 }
@@ -38,7 +38,7 @@ var _ SQLPopulator = &ConfigMapLoader{}
 // NewSQLLoaderForConfigMapData is useful when the operator manifest(s)
 // originate from a different source than a configMap. For example, operator
 // manifest(s) can be downloaded from a remote registry like quay.io.
-func NewSQLLoaderForConfigMapData(logger *logrus.Entry, store registry.Load, configMapData map[string]string) *ConfigMapLoader {
+func NewSQLLoaderForConfigMapData(logger *logrus.Entry, store Load, configMapData map[string]string) *ConfigMapLoader {
 	return &ConfigMapLoader{
 		log:           logger,
 		store:         store,
@@ -47,7 +47,7 @@ func NewSQLLoaderForConfigMapData(logger *logrus.Entry, store registry.Load, con
 	}
 }
 
-func NewSQLLoaderForConfigMap(store registry.Load, configMap v1.ConfigMap) *ConfigMapLoader {
+func NewSQLLoaderForConfigMap(store Load, configMap v1.ConfigMap) *ConfigMapLoader {
 	logger := logrus.WithFields(logrus.Fields{"configmap": configMap.GetName(), "ns": configMap.GetNamespace()})
 	return &ConfigMapLoader{
 		log:           logger,

@@ -12,7 +12,7 @@ import (
 	utilerrors "k8s.io/apimachinery/pkg/util/errors"
 	"k8s.io/apimachinery/pkg/util/yaml"
 
-	"github.com/operator-framework/operator-registry/pkg/registry"
+	"github.com/operator-framework/api/pkg/registry/manifests"
 )
 
 type SQLLoader struct {
@@ -20,7 +20,7 @@ type SQLLoader struct {
 	migrator Migrator
 }
 
-var _ registry.Load = &SQLLoader{}
+var _ Load = &SQLLoader{}
 
 func NewSQLLiteLoader(db *sql.DB, opts ...DbOption) (*SQLLoader, error) {
 	options := defaultDBOptions()
@@ -406,7 +406,7 @@ func SplitCRDName(crdName string) (plural, group string, err error) {
 
 func (s *SQLLoader) getCSV(tx *sql.Tx, csvName string) (*registry.ClusterServiceVersion, error) {
 	getCSV, err := tx.Prepare(`
-	  SELECT DISTINCT operatorbundle.csv 
+	  SELECT DISTINCT operatorbundle.csv
 	  FROM operatorbundle
 	  WHERE operatorbundle.name=? LIMIT 1`)
 	if err != nil {
@@ -810,7 +810,7 @@ func (s *SQLLoader) updatePackageChannels(tx *sql.Tx, manifest registry.PackageM
 			errs = append(errs, err)
 			break
 		}
-		
+
 		// check replaces
 		replaces, err := channelEntryCSV.GetReplaces()
 		if err != nil {

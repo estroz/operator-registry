@@ -7,15 +7,15 @@ import (
 
 	_ "github.com/mattn/go-sqlite3"
 
-	"github.com/operator-framework/operator-registry/pkg/api"
-	"github.com/operator-framework/operator-registry/pkg/registry"
+	"github.com/operator-framework/api/pkg/registry/api"
+	"github.com/operator-framework/api/pkg/registry/manifests"
 )
 
 type SQLQuerier struct {
 	db *sql.DB
 }
 
-var _ registry.Query = &SQLQuerier{}
+var _ Query = &SQLQuerier{}
 
 func NewSQLLiteQuerier(dbFilename string) (*SQLQuerier, error) {
 	db, err := sql.Open("sqlite3", "file:"+dbFilename+"?immutable=true")
@@ -124,7 +124,7 @@ func (s *SQLQuerier) GetBundle(ctx context.Context, pkgName, channelName, csvNam
 	defer rows.Close()
 
 	if !rows.Next() {
-		return nil,  fmt.Errorf("no entry found for %s %s %s", pkgName, channelName, csvName)
+		return nil, fmt.Errorf("no entry found for %s %s %s", pkgName, channelName, csvName)
 	}
 	var entryId sql.NullInt64
 	var name sql.NullString
@@ -161,7 +161,7 @@ func (s *SQLQuerier) GetBundle(ctx context.Context, pkgName, channelName, csvNam
 }
 
 func (s *SQLQuerier) GetBundleForChannel(ctx context.Context, pkgName string, channelName string) (*api.Bundle, error) {
-	query := `SELECT DISTINCT channel_entry.entry_id, operatorbundle.name, operatorbundle.bundle, operatorbundle.bundlepath, operatorbundle.version, operatorbundle.skiprange FROM channel 
+	query := `SELECT DISTINCT channel_entry.entry_id, operatorbundle.name, operatorbundle.bundle, operatorbundle.bundlepath, operatorbundle.version, operatorbundle.skiprange FROM channel
               INNER JOIN operatorbundle ON channel.head_operatorbundle_name=operatorbundle.name
               INNER JOIN channel_entry ON (channel_entry.channel_name = channel.name and channel_entry.package_name=channel.package_name and channel_entry.operatorbundle_name=operatorbundle.name)
               WHERE channel.package_name=? AND channel.name=? LIMIT 1`
@@ -172,7 +172,7 @@ func (s *SQLQuerier) GetBundleForChannel(ctx context.Context, pkgName string, ch
 	defer rows.Close()
 
 	if !rows.Next() {
-		return nil,  fmt.Errorf("no entry found for %s %s", pkgName, channelName)
+		return nil, fmt.Errorf("no entry found for %s %s", pkgName, channelName)
 	}
 	var entryId sql.NullInt64
 	var name sql.NullString
@@ -255,9 +255,8 @@ func (s *SQLQuerier) GetBundleThatReplaces(ctx context.Context, name, pkgName, c
 	}
 	defer rows.Close()
 
-
 	if !rows.Next() {
-		return nil,  fmt.Errorf("no entry found for %s %s", pkgName, channelName)
+		return nil, fmt.Errorf("no entry found for %s %s", pkgName, channelName)
 	}
 	var entryId sql.NullInt64
 	var outName sql.NullString
@@ -480,7 +479,7 @@ func (s *SQLQuerier) GetApisForEntry(ctx context.Context, entryId int64) (provid
 
 	providedRows, err := s.db.QueryContext(ctx, providedQuery, entryId)
 	if err != nil {
-		return nil,nil, err
+		return nil, nil, err
 	}
 
 	provided = []*api.GroupVersionKind{}
@@ -497,10 +496,10 @@ func (s *SQLQuerier) GetApisForEntry(ctx context.Context, entryId int64) (provid
 			return nil, nil, err
 		}
 		provided = append(provided, &api.GroupVersionKind{
-			Group:  groupName.String,
+			Group:   groupName.String,
 			Version: versionName.String,
-			Kind:   kindName.String,
-			Plural:   pluralName.String,
+			Kind:    kindName.String,
+			Plural:  pluralName.String,
 		})
 	}
 	if err := providedRows.Close(); err != nil {
@@ -513,7 +512,7 @@ func (s *SQLQuerier) GetApisForEntry(ctx context.Context, entryId int64) (provid
 
 	requiredRows, err := s.db.QueryContext(ctx, requiredQuery, entryId)
 	if err != nil {
-		return nil,nil, err
+		return nil, nil, err
 	}
 	required = []*api.GroupVersionKind{}
 	for requiredRows.Next() {
@@ -529,10 +528,10 @@ func (s *SQLQuerier) GetApisForEntry(ctx context.Context, entryId int64) (provid
 			return nil, nil, err
 		}
 		required = append(required, &api.GroupVersionKind{
-			Group:  groupName.String,
+			Group:   groupName.String,
 			Version: versionName.String,
-			Kind:   kindName.String,
-			Plural:   pluralName.String,
+			Kind:    kindName.String,
+			Plural:  pluralName.String,
 		})
 	}
 	if err := requiredRows.Close(); err != nil {

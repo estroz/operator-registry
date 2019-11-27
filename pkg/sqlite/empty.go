@@ -1,10 +1,11 @@
-package registry
+package sqlite
 
 import (
 	"context"
 	"errors"
 
-	"github.com/operator-framework/operator-registry/pkg/api"
+	"github.com/operator-framework/api/pkg/registry/api"
+	manifests "github.com/operator-framework/api/pkg/registry/manifests"
 )
 
 // EmptyQuery acts as a "zero value" implementation of the Query interface.
@@ -20,7 +21,7 @@ func (EmptyQuery) ListPackages(ctx context.Context) ([]string, error) {
 	return nil, errors.New("empty querier: cannot list packages")
 }
 
-func (EmptyQuery) GetPackage(ctx context.Context, name string) (*PackageManifest, error) {
+func (EmptyQuery) GetPackage(ctx context.Context, name string) (*manifests.PackageManifest, error) {
 	return nil, errors.New("empty querier: cannot get package")
 }
 
@@ -32,7 +33,7 @@ func (EmptyQuery) GetBundleForChannel(ctx context.Context, pkgName string, chann
 	return nil, errors.New("empty querier: cannot get bundle for channel")
 }
 
-func (EmptyQuery) GetChannelEntriesThatReplace(ctx context.Context, name string) (entries []*ChannelEntry, err error) {
+func (EmptyQuery) GetChannelEntriesThatReplace(ctx context.Context, name string) (entries []*manifests.ChannelEntry, err error) {
 	return nil, errors.New("empty querier: cannot get channel entries that replace")
 }
 
@@ -40,11 +41,11 @@ func (EmptyQuery) GetBundleThatReplaces(ctx context.Context, name, pkgName, chan
 	return nil, errors.New("empty querier: cannot get bundle that replaces")
 }
 
-func (EmptyQuery) GetChannelEntriesThatProvide(ctx context.Context, group, version, kind string) (entries []*ChannelEntry, err error) {
+func (EmptyQuery) GetChannelEntriesThatProvide(ctx context.Context, group, version, kind string) (entries []*manifests.ChannelEntry, err error) {
 	return nil, errors.New("empty querier: cannot get channel entries that provide")
 }
 
-func (EmptyQuery) GetLatestChannelEntriesThatProvide(ctx context.Context, group, version, kind string) (entries []*ChannelEntry, err error) {
+func (EmptyQuery) GetLatestChannelEntriesThatProvide(ctx context.Context, group, version, kind string) (entries []*manifests.ChannelEntry, err error) {
 	return nil, errors.New("empty querier: cannot get latest channel entries that provide")
 }
 

@@ -12,7 +12,7 @@ import (
 	utilerrors "k8s.io/apimachinery/pkg/util/errors"
 	"k8s.io/apimachinery/pkg/util/yaml"
 
-	"github.com/operator-framework/operator-registry/pkg/registry"
+	"github.com/operator-framework/api/pkg/registry/manifests"
 )
 
 const ClusterServiceVersionKind = "ClusterServiceVersion"
@@ -23,13 +23,13 @@ type SQLPopulator interface {
 
 // DirectoryLoader loads a directory of resources into the database
 type DirectoryLoader struct {
-	store     registry.Load
+	store     Load
 	directory string
 }
 
 var _ SQLPopulator = &DirectoryLoader{}
 
-func NewSQLLoaderForDirectory(store registry.Load, directory string) *DirectoryLoader {
+func NewSQLLoaderForDirectory(store Load, directory string) *DirectoryLoader {
 	return &DirectoryLoader{
 		store:     store,
 		directory: directory,

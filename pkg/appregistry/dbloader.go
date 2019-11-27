@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/operator-framework/operator-registry/pkg/registry"
 	"github.com/operator-framework/operator-registry/pkg/sqlite"
 	"github.com/sirupsen/logrus"
 )
@@ -39,7 +38,7 @@ type dbLoader struct {
 	logger *logrus.Entry
 }
 
-func (l *dbLoader) GetStore() registry.Query {
+func (l *dbLoader) GetStore() sqlite.Query {
 	return sqlite.NewSQLLiteQuerierFromDb(l.db)
 }
 

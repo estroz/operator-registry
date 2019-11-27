@@ -13,8 +13,8 @@ import (
 
 	"github.com/operator-framework/operator-registry/pkg/lib/log"
 
-	"github.com/operator-framework/operator-registry/pkg/api"
-	health "github.com/operator-framework/operator-registry/pkg/api/grpc_health_v1"
+	"github.com/operator-framework/api/pkg/registry/api"
+	health "github.com/operator-framework/api/pkg/registry/api/grpc_health_v1"
 	"github.com/operator-framework/operator-registry/pkg/server"
 	"github.com/operator-framework/operator-registry/pkg/sqlite"
 )

@@ -1,19 +1,20 @@
 package server
 
 import (
-	"github.com/operator-framework/operator-registry/pkg/api"
-	"github.com/operator-framework/operator-registry/pkg/registry"
+	"github.com/operator-framework/api/pkg/registry/api"
+	"github.com/operator-framework/api/pkg/registry/manifests"
+	"github.com/operator-framework/operator-registry/pkg/sqlite"
 
 	"golang.org/x/net/context"
 )
 
 type RegistryServer struct {
-	store registry.Query
+	store sqlite.Query
 }
 
 var _ api.RegistryServer = &RegistryServer{}
 
-func NewRegistryServer(store registry.Query) *RegistryServer {
+func NewRegistryServer(store sqlite.Query) *RegistryServer {
 	return &RegistryServer{store}
 }
 

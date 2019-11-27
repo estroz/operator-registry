@@ -12,23 +12,23 @@ import (
 	utilerrors "k8s.io/apimachinery/pkg/util/errors"
 	"k8s.io/apimachinery/pkg/util/yaml"
 
+	"github.com/operator-framework/api/pkg/registry/manifests"
 	"github.com/operator-framework/operator-registry/pkg/containertools"
-	"github.com/operator-framework/operator-registry/pkg/registry"
 )
 
 // ImageLoader loads a bundle image of resources into the database
 type ImageLoader struct {
-	store     registry.Load
-	image     string
-	directory string
+	store         Load
+	image         string
+	directory     string
 	containerTool string
 }
 
-func NewSQLLoaderForImage(store registry.Load, image, containerTool string) *ImageLoader {
+func NewSQLLoaderForImage(store Load, image, containerTool string) *ImageLoader {
 	return &ImageLoader{
-		store:     store,
-		image:     image,
-		directory: "",
+		store:         store,
+		image:         image,
+		directory:     "",
 		containerTool: containerTool,
 	}
 }

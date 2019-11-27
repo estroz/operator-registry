@@ -4,7 +4,7 @@ import (
 	"errors"
 	"fmt"
 	libbundle "github.com/operator-framework/operator-registry/pkg/lib/bundle"
-	"github.com/operator-framework/operator-registry/pkg/registry"
+	"github.com/operator-framework/api/pkg/registry/manifests"
 	"github.com/sirupsen/logrus"
 	corev1 "k8s.io/api/core/v1"
 	"strings"

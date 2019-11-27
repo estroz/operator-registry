@@ -15,10 +15,9 @@ import (
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
 
-	"github.com/operator-framework/operator-registry/pkg/api"
-	health "github.com/operator-framework/operator-registry/pkg/api/grpc_health_v1"
+	"github.com/operator-framework/api/pkg/registry/api"
+	health "github.com/operator-framework/api/pkg/registry/api/grpc_health_v1"
 	"github.com/operator-framework/operator-registry/pkg/lib/log"
-	"github.com/operator-framework/operator-registry/pkg/registry"
 	"github.com/operator-framework/operator-registry/pkg/server"
 	"github.com/operator-framework/operator-registry/pkg/sqlite"
 )
@@ -121,13 +120,13 @@ func runCmdFunc(cmd *cobra.Command, args []string) error {
 		logger.WithError(err).Warn("permissive mode enabled")
 	}
 
-	var store registry.Query
+	var store sqlite.Query
 	store, err = sqlite.NewSQLLiteQuerier(dbName)
 	if err != nil {
 		logger.WithError(err).Warnf("failed to load db")
 	}
 	if store == nil {
-		store = registry.NewEmptyQuerier()
+		store = sqlite.NewEmptyQuerier()
 	}
 
 	// sanity check that the db is available

@@ -7,7 +7,7 @@ import (
 	utilerrors "k8s.io/apimachinery/pkg/util/errors"
 
 	"github.com/operator-framework/operator-registry/pkg/client"
-	"github.com/operator-framework/operator-registry/pkg/registry"
+	"github.com/operator-framework/operator-registry/pkg/sqlite"
 )
 
 // NewLoader returns a new instance of AppregistryLoader.
@@ -57,7 +57,7 @@ type AppregistryLoader struct {
 	loader       *dbLoader
 }
 
-func (a *AppregistryLoader) Load(csvSources []string, csvPackages string) (registry.Query, error) {
+func (a *AppregistryLoader) Load(csvSources []string, csvPackages string) (sqlite.Query, error) {
 	a.logger.Infof("operator source(s) specified are - %s", csvSources)
 	a.logger.Infof("package(s) specified are - %s", csvPackages)
 

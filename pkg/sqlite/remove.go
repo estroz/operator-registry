@@ -6,8 +6,6 @@ import (
 
 	"github.com/sirupsen/logrus"
 	utilerrors "k8s.io/apimachinery/pkg/util/errors"
-
-	"github.com/operator-framework/operator-registry/pkg/registry"
 )
 
 type SQLRemover interface {
@@ -16,13 +14,13 @@ type SQLRemover interface {
 
 // PackageRemover removes a package from the database
 type PackageRemover struct {
-	store    registry.Load
+	store    Load
 	packages string
 }
 
 var _ SQLRemover = &PackageRemover{}
 
-func NewSQLRemoverForPackages(store registry.Load, packages string) *PackageRemover {
+func NewSQLRemoverForPackages(store Load, packages string) *PackageRemover {
 	return &PackageRemover{
 		store:    store,
 		packages: packages,
