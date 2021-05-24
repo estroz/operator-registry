@@ -1,383 +1,159 @@
 package action
 
 import (
-	"encoding/json"
+	"context"
 	"fmt"
-	"sort"
-
-	"github.com/blang/semver"
-	"github.com/sirupsen/logrus"
+	"os"
+	"reflect"
 
 	"github.com/operator-framework/operator-registry/internal/declcfg"
 	"github.com/operator-framework/operator-registry/internal/model"
-	"github.com/operator-framework/operator-registry/internal/property"
+	"github.com/operator-framework/operator-registry/pkg/image"
+	"github.com/operator-framework/operator-registry/pkg/lib/registry"
+	"github.com/operator-framework/operator-registry/pkg/sqlite"
+	"github.com/sirupsen/logrus"
 )
 
-type Pruner interface {
-	Prune(declcfg.DeclarativeConfig) (declcfg.DeclarativeConfig, error)
+type Prune struct {
+	Refs     []string
+	Registry image.Registry
+
+	Config     declcfg.DeclarativeConfig
+	Keep       bool
+	KeepHeads  bool
+	Permissive bool
+
+	Logger *logrus.Entry
 }
 
-type PruneConfig struct {
-	*declcfg.DeclarativeConfig
-}
+func (p Prune) Run(ctx context.Context) (*declcfg.DeclarativeConfig, error) {
+	if err := p.validate(); err != nil {
+		return nil, err
+	}
 
-func NewExclusivePruner(pc PruneConfig) Pruner {
-	return &exclusivePruner{pc: pc}
-}
-
-func NewInclusivePruner(pc PruneConfig) Pruner {
-	return &inclusivePruner{pc: pc}
-}
-
-func NewInclusiveHeadsPruner(pc PruneConfig) Pruner {
-	return &inclusivePruner{pc: pc, heads: true}
-}
-
-type exclusivePruner struct {
-	pc         PruneConfig
-	permissive bool
-}
-
-func (p *exclusivePruner) Prune(from declcfg.DeclarativeConfig) (to declcfg.DeclarativeConfig, err error) {
-	fromModel, err := declcfg.ConvertToModel(from)
+	render := Render{Refs: p.Refs, Registry: p.Registry}
+	cfg, err := render.Run(ctx)
 	if err != nil {
-		return to, err
+		return nil, err
 	}
-	fromRModel, err := toRModel(fromModel, false)
+
+	toModel, err := p.runModel(*cfg)
 	if err != nil {
-		return to, err
-	}
-	pruneModel, err := declcfg.ConvertToModel(*p.pc.DeclarativeConfig)
-	if err != nil {
-		return to, err
+		return nil, err
 	}
 
-	for _, pkg := range pruneModel {
-		rpkg, hasRPkg := fromRModel[pkg.Name]
-		if !hasRPkg && !p.permissive {
-			return to, missingPruneKeyError{keyType: property.TypePackage, key: pkg.Name}
-		} else if !hasRPkg {
-			continue
-		}
-
-		numChToRm := 0
-		for _, ch := range pkg.Channels {
-			rch, hasRCh := rpkg.RChannels[ch.Name]
-			if !hasRCh && !p.permissive {
-				return to, missingPruneKeyError{keyType: property.TypeChannel, key: ch.Name}
-			} else if !hasRCh {
-				continue
-			}
-
-			numBToRm := 0
-			for _, b := range ch.Bundles {
-				rb, hasRB := rch.RBundles[b.Name]
-				if !hasRB && !p.permissive {
-					return to, missingPruneKeyError{keyType: "olm.bundle", key: ch.Name}
-				} else if !hasRB {
-					continue
-				}
-
-				rb.Remove = true
-				numBToRm++
-			}
-			if numBToRm == len(rch.RBundles) || (numBToRm == 0 && len(ch.Bundles) == 0) {
-				rch.Remove = true
-				numChToRm++
-			}
-		}
-		if numChToRm == len(rpkg.RChannels) || (numChToRm == 0 && len(pkg.Channels) == 0) {
-			rpkg.Remove = true
-		}
-	}
-
-	fromModel = prune(fromRModel)
-
-	return declcfg.ConvertFromModel(fromModel), nil
+	prunedConfig := declcfg.ConvertFromModel(toModel)
+	return &prunedConfig, nil
 }
 
-type inclusivePruner struct {
-	pc         PruneConfig
-	heads      bool
-	permissive bool
+type PruneRegistry struct {
+	Prune
 }
 
-type missingPruneKeyError struct {
-	keyType string
-	key     string
-}
+var _ registry.RegistryPruner = PruneRegistry{}
 
-func (e missingPruneKeyError) Error() string {
-	return fmt.Sprintf("%s prune key %q not found in config", e.keyType, e.key)
-}
-
-func (p *inclusivePruner) Prune(from declcfg.DeclarativeConfig) (to declcfg.DeclarativeConfig, err error) {
-	fromModel, err := declcfg.ConvertToModel(from)
-	if err != nil {
-		return to, err
-	}
-	fromRModel, err := toRModel(fromModel, true)
-	if err != nil {
-		return to, err
-	}
-	pruneModel, err := declcfg.ConvertToModel(*p.pc.DeclarativeConfig)
-	if err != nil {
-		return to, err
-	}
-
-	for _, pkg := range pruneModel {
-		rpkg, hasRPkg := fromRModel[pkg.Name]
-		if !hasRPkg && !p.permissive {
-			return to, missingPruneKeyError{keyType: property.TypePackage, key: pkg.Name}
-		} else if !hasRPkg {
-			continue
-		}
-
-		// Channels
-		numChToRm := 0
-		if !p.heads {
-			numChToRm = len(rpkg.RChannels)
-		}
-		for _, ch := range pkg.Channels {
-			rch, hasRCh := rpkg.RChannels[ch.Name]
-			if !hasRCh && !p.permissive {
-				return to, missingPruneKeyError{keyType: property.TypeChannel, key: ch.Name}
-			} else if !hasRCh {
-				continue
-			}
-
-			// Bundles.
-			numBToRm := len(rch.RBundles)
-			if p.heads {
-				head, err := rch.Head()
-				if err != nil {
-					return to, err
-				}
-				rhead := rch.RBundles[head.Name]
-				rhead.Remove = false
-				numBToRm--
-			}
-			for _, b := range ch.Bundles {
-				rb, hasRB := rch.RBundles[b.Name]
-				if !hasRB && !p.permissive {
-					return to, missingPruneKeyError{keyType: "olm.bundle", key: ch.Name}
-				} else if !hasRB {
-					continue
-				}
-
-				rb.Remove = false
-				numBToRm--
-			}
-			if numBToRm < len(rch.RBundles) {
-				rch.Remove = false
-				numChToRm--
-			}
-
-		}
-		rpkg.Remove = numChToRm == len(rpkg.Channels)
-	}
-
-	fromModel = prune(fromRModel)
-
-	return declcfg.ConvertFromModel(fromModel), nil
-}
-
-type RModel map[string]*RPackage
-
-type RPackage struct {
-	*model.Package
-	RChannels map[string]*RChannel
-	Remove    bool
-}
-
-type RChannel struct {
-	*model.Channel
-	RPackage *RPackage
-	RBundles map[string]*RBundle
-	Remove   bool
-}
-
-type RBundle struct {
-	*model.Bundle
-	RPackage   *RPackage
-	RChannel   *RChannel
-	Version    semver.Version
-	Properties *property.Properties
-	Remove     bool
-}
-
-func toRModel(from model.Model, initialRemove bool) (RModel, error) {
-	rmodel := RModel{}
-	for _, pkg := range from {
-		pkg := pkg
-		rpkg := &RPackage{}
-		rpkg.Remove = initialRemove
-		rpkg.Package = pkg
-		rpkg.RChannels = make(map[string]*RChannel, len(pkg.Channels))
-		rmodel[pkg.Name] = rpkg
-		for _, ch := range pkg.Channels {
-			ch := ch
-			rch := &RChannel{}
-			rch.Channel = ch
-			rch.RPackage = rpkg
-			rch.Remove = initialRemove
-			rch.RBundles = make(map[string]*RBundle, len(ch.Bundles))
-			rpkg.RChannels[ch.Name] = rch
-			for _, b := range ch.Bundles {
-				b := b
-				rb := &RBundle{}
-				rb.Bundle = b
-				rb.RChannel = rch
-				rb.RPackage = rpkg
-				rb.Remove = initialRemove
-				var err error
-				if rb.Properties, err = property.Parse(b.Properties); err != nil {
-					return nil, err
-				}
-				if rb.Version, err = getCSVVersion([]byte(b.CsvJSON)); err != nil {
-					return nil, err
-				}
-				rch.RBundles[b.Name] = rb
-			}
-		}
-	}
-
-	return rmodel, nil
-}
-
-func prune(m RModel) model.Model {
-	reqGVKs, reqPkgs := getRequiredDependencies(m)
-	for _, pkg := range m {
-		bundleGVKSet := make(map[property.GVK][]*RBundle)
-		bundlesInPkgRange := make([]*RBundle, 0)
-		inRange, isOfPkg := reqPkgs[pkg.Name]
-		for _, ch := range pkg.RChannels {
-			for _, b := range ch.RBundles {
-				b := b
-				for _, gvk := range b.Properties.GVKs {
-					if _, hasGVK := reqGVKs[gvk]; hasGVK {
-						bundleGVKSet[gvk] = append(bundleGVKSet[gvk], b)
-					}
-				}
-				if isOfPkg && inRange(b.Version) {
-					bundlesInPkgRange = append(bundlesInPkgRange, b)
-				}
-			}
-		}
-		latestBundles := make(map[string]*RBundle)
-		for gvk, bundles := range bundleGVKSet {
-			sort.Slice(bundles, func(i, j int) bool {
-				return bundles[i].Version.LT(bundles[j].Version)
-			})
-			lb := bundles[len(bundles)-1]
-			latestBundles[lb.Version.String()] = lb
-			delete(reqGVKs, gvk)
-		}
-		sort.Slice(bundlesInPkgRange, func(i, j int) bool {
-			return bundlesInPkgRange[i].Version.LT(bundlesInPkgRange[j].Version)
+func (p PruneRegistry) PruneFromRegistry(req registry.PruneFromRegistryRequest) error {
+	// TODO: Render does not recognize bare db files yet so this does not work.
+	p.Refs = []string{req.InputDatabase}
+	p.Permissive = req.Permissive
+	if p.Logger == nil {
+		p.Logger = logrus.WithFields(logrus.Fields{
+			"db":     req.InputDatabase,
+			"pruner": "config",
 		})
-		if len(bundlesInPkgRange) > 0 {
-			lb := bundlesInPkgRange[len(bundlesInPkgRange)-1]
-			latestBundles[lb.Version.String()] = lb
-			delete(reqPkgs, pkg.Name)
-		}
-
-		if len(latestBundles) > 0 {
-			pkg.Remove = false
-		}
-		for _, lb := range latestBundles {
-			lb.Remove = false
-			lb.RChannel.Remove = false
-		}
+	} else {
+		p.Logger = p.Logger.WithField("db", req.InputDatabase)
 	}
-
-	// TODO: ensure both reqGVKs and reqPkgs are empty.
-
-	newModel := model.Model{}
-	for _, rpkg := range m {
-		if rpkg.Remove {
-			continue
-		}
-		pkg := rpkg.Package
-		pkg.Channels = make(map[string]*model.Channel)
-		newModel[pkg.Name] = pkg
-		for _, rch := range rpkg.RChannels {
-			if rch.Remove {
-				continue
-			}
-			ch := rch.Channel
-			ch.Bundles = make(map[string]*model.Bundle)
-			pkg.Channels[ch.Name] = ch
-			for _, rb := range rch.RBundles {
-				if rb.Remove {
-					continue
-				}
-				newModel.AddBundle(*rb.Bundle)
-			}
-		}
-	}
-
-	// TODO: handle dangling replaces.
-
-	return newModel
+	return p.Run(context.TODO())
 }
 
-func rangeAny(semver.Version) bool { return true }
-
-func getRequiredDependencies(m RModel) (reqGVKs map[property.GVK]struct{}, reqPkgs map[string]semver.Range) {
-	reqGVKs = make(map[property.GVK]struct{})
-	reqPkgs = make(map[string]semver.Range)
-	for _, pkg := range m {
-		if pkg.Remove {
-			continue
-		}
-		for _, ch := range pkg.RChannels {
-			if ch.Remove {
-				continue
-			}
-			for _, b := range ch.RBundles {
-				if b.Remove {
-					continue
-				}
-				for _, gvkReq := range b.Properties.GVKsRequired {
-					gvk := property.GVK{
-						Group:   gvkReq.Group,
-						Version: gvkReq.Version,
-						Kind:    gvkReq.Kind,
-					}
-					reqGVKs[gvk] = struct{}{}
-				}
-				for _, pkgReq := range b.Properties.PackagesRequired {
-					var inRange semver.Range
-					if pkgReq.VersionRange != "" {
-						var err error
-						if inRange, err = semver.ParseRange(pkgReq.VersionRange); err != nil {
-							// Should never happen since model has been validated.
-							logrus.Error(err)
-							continue
-						}
-					} else {
-						inRange = rangeAny
-					}
-					if _, ok := reqPkgs[pkgReq.PackageName]; !ok {
-						reqPkgs[pkgReq.PackageName] = inRange
-					} else {
-						reqPkgs[pkgReq.PackageName].OR(inRange)
-					}
-				}
-			}
-		}
+func (p PruneRegistry) Run(ctx context.Context) error {
+	if err := p.validate(); err != nil {
+		return err
 	}
 
-	return reqGVKs, reqPkgs
+	render := Render{Refs: p.Refs, Registry: p.Registry}
+	cfg, err := render.Run(ctx)
+	if err != nil {
+		return err
+	}
+
+	toModel, err := p.runModel(*cfg)
+	if err != nil {
+		return err
+	}
+
+	store, closeStore, err := p.newStore(ctx, p.Refs[0])
+	defer closeStore()
+	if err != nil {
+		return err
+	}
+
+	if err = sqlite.FromModel(ctx, toModel, store); err != nil {
+		return err
+	}
+
+	return nil
 }
 
-func getCSVVersion(csvJSON []byte) (semver.Version, error) {
-	var tmp struct {
-		Spec struct {
-			Version semver.Version `json:"version"`
-		} `json:"spec"`
+func (p Prune) validate() error {
+	if reflect.ValueOf(p.Config).IsZero() {
+		return fmt.Errorf("prune config must be set")
 	}
-	err := json.Unmarshal(csvJSON, &tmp)
-	return tmp.Spec.Version, err
+
+	return nil
+}
+
+func (p Prune) runModel(cfg declcfg.DeclarativeConfig) (toModel model.Model, err error) {
+	fromModel, err := declcfg.ConvertToModel(p.Config)
+	if err != nil {
+		return nil, err
+	}
+	pruneModel, err := declcfg.ConvertToModel(cfg)
+	if err != nil {
+		return nil, err
+	}
+
+	if p.Keep {
+		toModel, err = model.PruneKeep(fromModel, pruneModel, p.Permissive, p.KeepHeads)
+	} else {
+		toModel, err = model.PruneRemove(fromModel, pruneModel, p.Permissive)
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	return toModel, nil
+}
+
+func (p PruneRegistry) newStore(ctx context.Context, dbPath string) (store sqlite.MigratableLoader, closeStore func(), err error) {
+	closeStore = func() {}
+
+	// Zero the db file so we can freshly add the pruned index.
+	//
+	// QUESTION: is the assumption that a db produced by adding bundles
+	// in random order consistent with a db pruned by removal correct?
+	if err := os.Truncate(dbPath, 0); err != nil {
+		return nil, nil, err
+	}
+
+	db, err := sqlite.Open(dbPath)
+	if err != nil {
+		return nil, nil, err
+	}
+	closeStore = func() {
+		if cerr := db.Close(); cerr != nil {
+			p.Logger.Error(cerr)
+		}
+	}
+
+	dbLoader, err := sqlite.NewSQLLiteLoader(db)
+	if err != nil {
+		return nil, nil, err
+	}
+	if err := dbLoader.Migrate(ctx); err != nil {
+		return nil, nil, err
+	}
+
+	return dbLoader, closeStore, nil
 }

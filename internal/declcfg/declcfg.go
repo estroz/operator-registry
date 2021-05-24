@@ -25,6 +25,10 @@ type Package struct {
 	Description    string `json:"description,omitempty"`
 }
 
+func NewPackage(name string) Package {
+	return Package{Schema: schemaPackage, Name: name}
+}
+
 type Icon struct {
 	Data      []byte `json:"base64data"`
 	MediaType string `json:"mediatype"`

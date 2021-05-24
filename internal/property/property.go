@@ -8,7 +8,10 @@ import (
 	"io/ioutil"
 	"path/filepath"
 	"reflect"
+	"sort"
 	"strings"
+
+	"k8s.io/apimachinery/pkg/version"
 )
 
 type Property struct {
@@ -310,4 +313,20 @@ func MustBuildBundleObjectRef(ref string) Property {
 }
 func MustBuildBundleObjectData(data []byte) Property {
 	return MustBuild(&BundleObject{File: File{data: data}})
+}
+
+type GVKs []GVK
+
+var _ sort.Interface = GVKs{}
+
+func (gvks GVKs) Len() int      { return len(gvks) }
+func (gvks GVKs) Swap(i, j int) { gvks[i], gvks[j] = gvks[j], gvks[i] }
+func (gvks GVKs) Less(i, j int) bool {
+	if gvks[i].Group == gvks[j].Group {
+		if gvks[i].Kind == gvks[j].Kind {
+			return version.CompareKubeAwareVersionStrings(gvks[i].Version, gvks[j].Version) < 0
+		}
+		return gvks[i].Kind < gvks[j].Kind
+	}
+	return gvks[i].Group < gvks[j].Group
 }

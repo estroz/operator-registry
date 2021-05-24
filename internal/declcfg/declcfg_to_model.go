@@ -1,7 +1,10 @@
 package declcfg
 
 import (
+	"encoding/json"
 	"fmt"
+
+	"github.com/blang/semver"
 
 	"github.com/operator-framework/operator-registry/internal/model"
 	"github.com/operator-framework/operator-registry/internal/property"
@@ -66,6 +69,11 @@ func ConvertToModel(cfg DeclarativeConfig) (model.Model, error) {
 				}
 				mpkg.Channels[bundleChannel.Name] = pkgChannel
 			}
+			// TODO: is this right? get from property? use replaces instead?
+			ver, err := getCSVVersion([]byte(b.CsvJSON))
+			if err != nil {
+				return nil, err
+			}
 			pkgChannel.Bundles[b.Name] = &model.Bundle{
 				Package:       mpkg,
 				Channel:       pkgChannel,
@@ -74,9 +82,11 @@ func ConvertToModel(cfg DeclarativeConfig) (model.Model, error) {
 				Replaces:      bundleChannel.Replaces,
 				Skips:         skipsToStrings(props.Skips),
 				Properties:    b.Properties,
+				PropertiesP:   props,
 				RelatedImages: relatedImagesToModelRelatedImages(b.RelatedImages),
 				CsvJSON:       b.CsvJSON,
 				Objects:       b.Objects,
+				Version:       ver,
 			}
 		}
 	}
@@ -118,4 +128,14 @@ func relatedImagesToModelRelatedImages(in []RelatedImage) []model.RelatedImage {
 		})
 	}
 	return out
+}
+
+func getCSVVersion(csvJSON []byte) (semver.Version, error) {
+	var tmp struct {
+		Spec struct {
+			Version semver.Version `json:"version"`
+		} `json:"spec"`
+	}
+	err := json.Unmarshal(csvJSON, &tmp)
+	return tmp.Spec.Version, err
 }
