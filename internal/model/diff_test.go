@@ -58,7 +58,7 @@ func TestGetReplacesGraph(t *testing.T) {
 			for _, b := range s.bundles {
 				ch.Bundles[b.Name] = b
 			}
-			output := ch.GetReplacesGraph(s.start)
+			output := getChannelReplacesGraph(ch, s.start)
 			sort.Slice(output, func(i, j int) bool {
 				return output[i].Name < output[j].Name
 			})
