@@ -170,6 +170,46 @@ func (c Channel) Head() (*Bundle, error) {
 	return heads[0], nil
 }
 
+// v0.8.0 <--replaces-- v0.8.1
+//  ^                     |
+//  \                     |
+//   \                  skips
+//    \						        |
+// 	   \__ replaces __ v0.9.0
+func (c Channel) GetReplacesGraph(start *Bundle) (replacingBundles []*Bundle) {
+
+	allReplaces := map[string][]*Bundle{}
+	replacingStart := []*Bundle{}
+	for _, b := range c.Bundles {
+		if b.Replaces == "" {
+			continue
+		}
+		allReplaces[b.Replaces] = append(allReplaces[b.Replaces], b)
+		if b.Replaces == start.Name {
+			replacingStart = append(replacingStart, b)
+		}
+	}
+
+	replacesSet := map[string]*Bundle{}
+	for _, b := range replacingStart {
+		currName := ""
+		for next := []*Bundle{b}; len(next) > 0; next = next[1:] {
+			currName = next[0].Name
+			if _, seen := replacesSet[currName]; !seen {
+				replacers := allReplaces[currName]
+				next = append(next, replacers...)
+				replacesSet[currName] = c.Bundles[currName]
+			}
+		}
+	}
+
+	for _, b := range replacesSet {
+		replacingBundles = append(replacingBundles, b)
+	}
+
+	return replacingBundles
+}
+
 func (c *Channel) Validate() error {
 	var result *multierror.Error
 	if c.Name == "" {

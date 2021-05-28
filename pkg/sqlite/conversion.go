@@ -37,8 +37,8 @@ func ToModel(ctx context.Context, q *SQLQuerier) (model.Model, error) {
 func FromModel(ctx context.Context, m model.Model, store registry.Load) error {
 	for _, pkg := range m {
 		for _, ch := range pkg.Channels {
-			for _, b := range ch.Bundles {
-				store.AddOperatorBundle()
+			for _, _ = range ch.Bundles {
+				// store.AddOperatorBundle()
 			}
 		}
 	}
