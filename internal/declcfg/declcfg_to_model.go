@@ -69,10 +69,19 @@ func ConvertToModel(cfg DeclarativeConfig) (model.Model, error) {
 				}
 				mpkg.Channels[bundleChannel.Name] = pkgChannel
 			}
-			// TODO: is this right? get from property? use replaces instead?
-			ver, err := getCSVVersion([]byte(b.CsvJSON))
-			if err != nil {
-				return nil, err
+			var ver semver.Version
+			for _, pkgProp := range props.Packages {
+				if pkgProp.PackageName == mpkg.Name && pkgProp.Version != "" {
+					if ver, err = semver.Parse(pkgProp.Version); err != nil {
+						return nil, fmt.Errorf("error parsing bundle version: %v", err)
+					}
+					break
+				}
+			}
+			if ver.Equals(semver.Version{}) {
+				if ver, err = getCSVVersion([]byte(b.CsvJSON)); err != nil {
+					return nil, fmt.Errorf("error reading bundle version from CSV: %v", err)
+				}
 			}
 			pkgChannel.Bundles[b.Name] = &model.Bundle{
 				Package:       mpkg,

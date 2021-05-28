@@ -6,6 +6,8 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/blang/semver"
+	"github.com/operator-framework/api/pkg/operators/v1alpha1"
 	"github.com/operator-framework/operator-registry/internal/model"
 	"github.com/operator-framework/operator-registry/internal/property"
 )
@@ -59,6 +61,24 @@ func registryBundleToModelBundle(b *Bundle) (*model.Bundle, error) {
 	if err != nil {
 		return nil, fmt.Errorf("error converting properties for internal model: %v", err)
 	}
+	var objects []string
+	var csvStr string
+	for _, obj := range b.Objects {
+		objBytes, err := json.Marshal(obj)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling object for internal model: %v", err)
+		}
+		if obj.GroupVersionKind() == v1alpha1.SchemeGroupVersion.WithKind("ClusterServiceVersion") {
+			csvStr = string(objBytes)
+		}
+		objects = append(objects, string(objBytes))
+		bundleProps = append(bundleProps, property.MustBuildBundleObjectData(objBytes))
+	}
+
+	props, err := property.Parse(bundleProps)
+	if err != nil {
+		return nil, fmt.Errorf("error parsing properties for internal model: %v", err)
+	}
 
 	csv, err := b.ClusterServiceVersion()
 	if err != nil {
@@ -77,13 +97,26 @@ func registryBundleToModelBundle(b *Bundle) (*model.Bundle, error) {
 		return nil, fmt.Errorf("Could not get Related images from bundle: %v", err)
 	}
 
+	verStr, err := csv.GetVersion()
+	if err != nil {
+		return nil, fmt.Errorf("Could not get version from CVS for bundle: %s", err)
+	}
+	ver, err := semver.Parse(verStr)
+	if err != nil {
+		return nil, fmt.Errorf("error parsing version for internal model: %v", err)
+	}
+
 	return &model.Bundle{
 		Name:          csv.Name,
 		Image:         b.BundleImage,
 		Replaces:      replaces,
 		Skips:         skips,
 		Properties:    bundleProps,
+		PropertiesP:   props,
 		RelatedImages: relatedImages,
+		Version:       ver,
+		CsvJSON:       csvStr,
+		Objects:       objects,
 	}, nil
 }
 

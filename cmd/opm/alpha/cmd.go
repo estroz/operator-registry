@@ -5,6 +5,7 @@ import (
 
 	"github.com/operator-framework/operator-registry/cmd/opm/alpha/add"
 	"github.com/operator-framework/operator-registry/cmd/opm/alpha/bundle"
+	"github.com/operator-framework/operator-registry/cmd/opm/alpha/diff"
 	initcmd "github.com/operator-framework/operator-registry/cmd/opm/alpha/init"
 	"github.com/operator-framework/operator-registry/cmd/opm/alpha/render"
 	"github.com/operator-framework/operator-registry/cmd/opm/alpha/serve"
@@ -19,5 +20,6 @@ func NewCmd() *cobra.Command {
 	}
 
 	runCmd.AddCommand(bundle.NewCmd(), add.NewCmd(), initcmd.NewCmd(), serve.NewCmd(), render.NewCmd(), validate.NewCmd())
+	runCmd.AddCommand(diff.NewCmd())
 	return runCmd
 }

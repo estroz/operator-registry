@@ -4,7 +4,6 @@ import (
 	"fmt"
 
 	"github.com/blang/semver"
-	"github.com/operator-framework/operator-registry/internal/model"
 )
 
 // BundleGraphLoader generates updated graphs by adding bundles to them, updating
@@ -51,158 +50,106 @@ func (g *BundleGraphLoader) AddBundleToGraph(bundle *Bundle, graph *Package, ann
 
 	// generate the DAG for each channel the new bundle is being insert into
 	for _, channel := range bundle.Channels {
-		if err := addBundleToGraphChannel(graph, channel, newBundleKey, versionToAdd, skippatch); err != nil {
-			return nil, err
+		replaces := make(map[BundleKey]struct{}, 0)
+
+		// If the channel doesn't exist yet, initialize it
+		if !graph.HasChannel(channel) {
+			// create the channel and add a single node
+			newChannelGraph := Channel{
+				Head: newBundleKey,
+				Nodes: map[BundleKey]map[BundleKey]struct{}{
+					newBundleKey: nil,
+				},
+			}
+			if graph.Channels == nil {
+				graph.Channels = make(map[string]Channel, 1)
+			}
+			graph.Channels[channel] = newChannelGraph
+			continue
 		}
+
+		// find the version(s) it should sit between
+		channelGraph := graph.Channels[channel]
+		if channelGraph.Nodes == nil {
+			channelGraph.Nodes = make(map[BundleKey]map[BundleKey]struct{}, 1)
+		}
+
+		lowestAhead := BundleKey{}
+		greatestBehind := BundleKey{}
+		skipPatchCandidates := []BundleKey{}
+
+		// Iterate over existing nodes and compare the new node's version to find the
+		// lowest version above it and highest version below it (to insert between these nodes)
+		for node := range channelGraph.Nodes {
+			nodeVersion, err := semver.Make(node.Version)
+			if err != nil {
+				return nil, fmt.Errorf("Unable to parse existing bundle version stored in index %s %s %s",
+					node.CsvName, node.Version, node.BundlePath)
+			}
+
+			switch comparison := nodeVersion.Compare(versionToAdd); comparison {
+			case 0:
+				return nil, fmt.Errorf("Bundle version %s already added to index", bundleVersion)
+			case 1:
+				if lowestAhead.IsEmpty() {
+					lowestAhead = node
+				} else {
+					lowestAheadSemver, _ := semver.Make(lowestAhead.Version)
+					if nodeVersion.LT(lowestAheadSemver) {
+						lowestAhead = node
+					}
+				}
+			case -1:
+				if greatestBehind.IsEmpty() {
+					greatestBehind = node
+				} else {
+					greatestBehindSemver, _ := semver.Make(greatestBehind.Version)
+					if nodeVersion.GT(greatestBehindSemver) {
+						greatestBehind = node
+					}
+				}
+			}
+
+			// if skippatch mode is enabled, check each node to determine if z-updates should
+			// be replaced as well. Keep track of them to delete those nodes from the graph itself,
+			// just be aware of them for replacements
+			if skippatch {
+				if isSkipPatchCandidate(versionToAdd, nodeVersion) {
+					skipPatchCandidates = append(skipPatchCandidates, node)
+					replaces[node] = struct{}{}
+				}
+			}
+		}
+
+		// If we found a node behind the one we're adding, make the new node replace it
+		if !greatestBehind.IsEmpty() {
+			replaces[greatestBehind] = struct{}{}
+		}
+
+		// If we found a node ahead of the one we're adding, make the lowest to replace
+		// the new node. If we didn't find a node semantically ahead, the new node is
+		// the new channel head
+		if !lowestAhead.IsEmpty() {
+			channelGraph.Nodes[lowestAhead] = map[BundleKey]struct{}{
+				newBundleKey: struct{}{},
+			}
+		} else {
+			channelGraph.Head = newBundleKey
+		}
+
+		if skippatch {
+			// Remove the nodes that are now being skipped by a new patch version update
+			for _, candidate := range skipPatchCandidates {
+				delete(channelGraph.Nodes, candidate)
+			}
+		}
+
+		// add the node and update the graph
+		channelGraph.Nodes[newBundleKey] = replaces
+		graph.Channels[channel] = channelGraph
 	}
 
 	return graph, nil
-}
-
-func GetReplacesChainForGraph(graph *Package, start *model.Bundle) (orderedBundles []*model.Bundle, err error) {
-	ch := start.Channel
-	replacesChain := ch.GetReplacesGraph(start)
-	for _, b := range append([]*model.Bundle{start}, replacesChain...) {
-		key := BundleKey{
-			CsvName: b.Name,
-			Version: b.Version.String(),
-		}
-		bundleVer := b.Version
-		if err := addBundleToGraphChannel(graph, ch.Name, key, bundleVer, true); err != nil {
-			return nil, err
-		}
-	}
-
-	gch := graph.Channels[ch.Name]
-	curr := gch.Head
-	revOrderedBundles := make([]*model.Bundle, 1)
-	for curr.CsvName != start.Name {
-		mb := ch.Bundles[curr.CsvName]
-		switch currL := len(gch.Nodes[curr]); currL {
-		case 0:
-			break
-		case 1:
-			for replaces := range gch.Nodes[curr] {
-				curr = replaces
-				break
-			}
-		default:
-			return nil, fmt.Errorf("too many replaces nodes for %s: %+q", curr, gch.Nodes[curr])
-		}
-		mb.Replaces = curr.CsvName
-		revOrderedBundles = append(revOrderedBundles, mb)
-	}
-	revOrderedBundles = append(revOrderedBundles, start)
-
-	l := len(revOrderedBundles)
-	orderedBundles = make([]*model.Bundle, l)
-	for i := l - 1; i >= 0; i-- {
-		orderedBundles[l-(i+1)] = revOrderedBundles[i]
-	}
-
-	return orderedBundles, nil
-}
-
-func addBundleToGraphChannel(graph *Package, channel string, newBundleKey BundleKey, versionToAdd semver.Version, skippatch bool) error {
-	replaces := make(map[BundleKey]struct{}, 0)
-
-	// If the channel doesn't exist yet, initialize it
-	if !graph.HasChannel(channel) {
-		// create the channel and add a single node
-		newChannelGraph := Channel{
-			Head: newBundleKey,
-			Nodes: map[BundleKey]map[BundleKey]struct{}{
-				newBundleKey: nil,
-			},
-		}
-		if graph.Channels == nil {
-			graph.Channels = make(map[string]Channel, 1)
-		}
-		graph.Channels[channel] = newChannelGraph
-		return nil
-	}
-
-	// find the version(s) it should sit between
-	channelGraph := graph.Channels[channel]
-	if channelGraph.Nodes == nil {
-		channelGraph.Nodes = make(map[BundleKey]map[BundleKey]struct{}, 1)
-	}
-
-	lowestAhead := BundleKey{}
-	greatestBehind := BundleKey{}
-	skipPatchCandidates := []BundleKey{}
-
-	// Iterate over existing nodes and compare the new node's version to find the
-	// lowest version above it and highest version below it (to insert between these nodes)
-	for node := range channelGraph.Nodes {
-		nodeVersion, err := semver.Make(node.Version)
-		if err != nil {
-			return fmt.Errorf("Unable to parse existing bundle version stored in index %s %s %s",
-				node.CsvName, node.Version, node.BundlePath)
-		}
-
-		switch nodeVersion.Compare(versionToAdd) {
-		case 0:
-			return fmt.Errorf("Bundle version %s already added to index", newBundleKey.Version)
-		case 1:
-			if lowestAhead.IsEmpty() {
-				lowestAhead = node
-			} else {
-				lowestAheadSemver, _ := semver.Make(lowestAhead.Version)
-				if nodeVersion.LT(lowestAheadSemver) {
-					lowestAhead = node
-				}
-			}
-		case -1:
-			if greatestBehind.IsEmpty() {
-				greatestBehind = node
-			} else {
-				greatestBehindSemver, _ := semver.Make(greatestBehind.Version)
-				if nodeVersion.GT(greatestBehindSemver) {
-					greatestBehind = node
-				}
-			}
-		}
-
-		// if skippatch mode is enabled, check each node to determine if z-updates should
-		// be replaced as well. Keep track of them to delete those nodes from the graph itself,
-		// just be aware of them for replacements
-		if skippatch {
-			if isSkipPatchCandidate(versionToAdd, nodeVersion) {
-				skipPatchCandidates = append(skipPatchCandidates, node)
-				replaces[node] = struct{}{}
-			}
-		}
-	}
-
-	// If we found a node behind the one we're adding, make the new node replace it
-	if !greatestBehind.IsEmpty() {
-		replaces[greatestBehind] = struct{}{}
-	}
-
-	// If we found a node ahead of the one we're adding, make the lowest to replace
-	// the new node. If we didn't find a node semantically ahead, the new node is
-	// the new channel head
-	if !lowestAhead.IsEmpty() {
-		channelGraph.Nodes[lowestAhead] = map[BundleKey]struct{}{
-			newBundleKey: {},
-		}
-	} else {
-		channelGraph.Head = newBundleKey
-	}
-
-	if skippatch {
-		// Remove the nodes that are now being skipped by a new patch version update
-		for _, candidate := range skipPatchCandidates {
-			delete(channelGraph.Nodes, candidate)
-		}
-	}
-
-	// add the node and update the graph
-	channelGraph.Nodes[newBundleKey] = replaces
-	graph.Channels[channel] = channelGraph
-
-	return nil
 }
 
 // isSkipPatchCandidate returns true if version is equal to toCompare
