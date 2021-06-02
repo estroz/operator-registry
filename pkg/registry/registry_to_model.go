@@ -8,6 +8,7 @@ import (
 
 	"github.com/blang/semver"
 	"github.com/operator-framework/api/pkg/operators/v1alpha1"
+
 	"github.com/operator-framework/operator-registry/internal/model"
 	"github.com/operator-framework/operator-registry/internal/property"
 )

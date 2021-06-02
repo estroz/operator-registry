@@ -5,6 +5,7 @@ import (
 	"sort"
 
 	"github.com/blang/semver"
+	"github.com/hashicorp/go-multierror"
 
 	"github.com/operator-framework/operator-registry/internal/model"
 	"github.com/operator-framework/operator-registry/internal/property"
@@ -125,8 +126,7 @@ func PruneKeep(fromModel model.Model, pruneCfg pruneConfig, permissive, heads bo
 	}
 
 	for _, pkg := range fromModel {
-		tmp := getProvidingBundles(pkg, reqGVKs, reqPkgs)
-		for _, b := range tmp {
+		for _, b := range getProvidingBundles(pkg, reqGVKs, reqPkgs) {
 			ppkg, hasPkg := prunedModel[b.Package.Name]
 			if !hasPkg {
 				ppkg = copyPackageEmptyChannels(b.Package)
@@ -142,14 +142,24 @@ func PruneKeep(fromModel model.Model, pruneCfg pruneConfig, permissive, heads bo
 		}
 	}
 
-	return prunedModel, nil
+	// Ensure both reqGVKs and reqPkgs are empty. It is likely a bug if they are not,
+	// since the model is assumed to be valid.
+	var result *multierror.Error
+	if len(reqGVKs) != 0 {
+		result = multierror.Append(result, fmt.Errorf("gvks not provided: %+q", gvkSetToSlice(reqGVKs)))
+	}
+	if len(reqPkgs) != 0 {
+		result = multierror.Append(result, fmt.Errorf("packages not provided: %+q", pkgSetToSlice(reqPkgs)))
+	}
+
+	return prunedModel, result.ErrorOrNil()
 }
 
 func getProvidingBundles(pkg *model.Package, reqGVKs map[property.GVK]struct{}, reqPkgs map[string][]semver.Range) (providingBundles []*model.Bundle) {
 	bundlesProvidingGVK := make(map[property.GVK][]*model.Bundle)
 	var bundlesByRange [][]*model.Bundle
-	ranges, isRequired := reqPkgs[pkg.Name]
-	if isRequired {
+	ranges, isPkgRequired := reqPkgs[pkg.Name]
+	if isPkgRequired {
 		bundlesByRange = make([][]*model.Bundle, len(ranges))
 	}
 	for _, ch := range pkg.Channels {
@@ -188,7 +198,7 @@ func getProvidingBundles(pkg *model.Package, reqGVKs map[property.GVK]struct{}, 
 		lb := bundlesInRange[len(bundlesInRange)-1]
 		latestBundles[lb.Version.String()] = lb
 	}
-	if len(missedRanges) == 0 {
+	if isPkgRequired && len(missedRanges) == 0 {
 		delete(reqPkgs, pkg.Name)
 	}
 
@@ -243,7 +253,7 @@ func gvkSetToSlice(gvkSet map[property.GVK]struct{}) property.GVKs {
 	return gvks
 }
 
-func pkgSetToSlice(pkgSet map[string]semver.Range) []string {
+func pkgSetToSlice(pkgSet map[string][]semver.Range) []string {
 	pkgs := make([]string, len(pkgSet))
 	i := 0
 	for pkg := range pkgSet {
