@@ -9,6 +9,8 @@ import (
 	"strings"
 
 	"github.com/operator-framework/api/pkg/operators"
+	"github.com/sirupsen/logrus"
+	"github.com/spf13/afero"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/util/yaml"
 
@@ -16,7 +18,7 @@ import (
 )
 
 func LoadDir(configDir string) (*DeclarativeConfig, error) {
-	w := &dirWalker{}
+	w := &dirWalker{fs: afero.NewOsFs()}
 	return loadFS(configDir, w)
 }
 
@@ -72,6 +74,8 @@ func extractCSV(objs []string) string {
 	return ""
 }
 
+var htmlReplacer = strings.NewReplacer(`\u003c`, "<", `\u003e`, ">", `\u0026`, "&")
+
 func readYAMLOrJSON(r io.Reader) (*DeclarativeConfig, error) {
 	cfg := &DeclarativeConfig{}
 	dec := yaml.NewYAMLOrJSONDecoder(r, 4096)
@@ -80,7 +84,7 @@ func readYAMLOrJSON(r io.Reader) (*DeclarativeConfig, error) {
 		if err := dec.Decode(&doc); err != nil {
 			break
 		}
-		doc = []byte(strings.NewReplacer(`\u003c`, "<", `\u003e`, ">", `\u0026`, "&").Replace(string(doc)))
+		doc = []byte(htmlReplacer.Replace(string(doc)))
 
 		var in Meta
 		if err := json.Unmarshal(doc, &in); err != nil {
@@ -115,20 +119,30 @@ type fsWalker interface {
 	WalkFiles(root string, f func(path string, r io.Reader) error) error
 }
 
-type dirWalker struct{}
+type dirWalker struct {
+	fs afero.Fs
+}
 
 func (w dirWalker) WalkFiles(root string, f func(string, io.Reader) error) error {
-	return filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
+	if w.fs == nil {
+		w.fs = afero.NewOsFs()
+	}
+	return afero.Walk(w.fs, root, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			return err
 		}
 		if info.IsDir() {
 			return nil
 		}
-		file, err := os.Open(path)
+		file, err := w.fs.Open(path)
 		if err != nil {
 			return err
 		}
+		defer func() {
+			if cerr := file.Close(); cerr != nil {
+				logrus.Error(cerr)
+			}
+		}()
 		return f(path, file)
 	})
 }
