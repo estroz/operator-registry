@@ -40,38 +40,34 @@ func PruneKeep(fromModel Model, pruneCfg pruneConfig, permissive, heads bool) (p
 		}
 	}
 	for pkgName, pruneChannels := range pruneCfg {
-		var cPkg *Package
 		pkg, hasPkg := fromModel[pkgName]
 		if !hasPkg {
 			if !permissive {
 				return nil, missingPruneKeyError{keyType: property.TypePackage, key: pkgName}
 			}
 			continue
-		} else if heads {
-			cPkg = prunedModel[pkgName]
-		} else {
-			cPkg = copyPackageEmptyChannels(pkg)
-			prunedModel[pkg.Name] = cPkg
 		}
+		if !heads {
+			prunedModel[pkgName] = copyPackageEmptyChannels(pkg)
+		}
+		cPkg := prunedModel[pkgName]
 		if len(pruneChannels) == 0 {
 			for _, ch := range pkg.Channels {
 				cPkg.Channels[ch.Name] = ch
 			}
 		}
 		for chName, pruneBundles := range pruneChannels {
-			var cCh *Channel
-			ch, hasCh := pkg.Channels[pkgName]
+			ch, hasCh := pkg.Channels[chName]
 			if !hasCh {
 				if !permissive {
 					return nil, missingPruneKeyError{keyType: property.TypeChannel, key: chName}
 				}
 				continue
-			} else if heads {
-				cCh = cPkg.Channels[chName]
-			} else {
-				cCh = copyChannelEmptyBundles(ch, cPkg)
-				cPkg.Channels[cCh.Name] = cCh
 			}
+			if !heads {
+				cPkg.Channels[chName] = copyChannelEmptyBundles(ch, cPkg)
+			}
+			cCh := cPkg.Channels[chName]
 			cPkg.Channels[cCh.Name] = cCh
 			if len(pruneBundles) == 0 {
 				for _, b := range ch.Bundles {
@@ -85,7 +81,8 @@ func PruneKeep(fromModel Model, pruneCfg pruneConfig, permissive, heads bool) (p
 						return nil, missingPruneKeyError{keyType: "olm.bundle", key: bName}
 					}
 					continue
-				} else if heads {
+				}
+				if heads {
 					if _, created := cCh.Bundles[bName]; created {
 						continue
 					}
