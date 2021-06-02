@@ -113,7 +113,7 @@ func (p Prune) runModel(cfg declcfg.DeclarativeConfig) (toModel model.Model, err
 		}
 	}
 
-	toModel, err = model.PruneKeep(fromModel, pruneCfg, p.Permissive, p.KeepHeads)
+	toModel, err = declcfg.PruneKeep(fromModel, pruneCfg, p.Permissive, p.KeepHeads)
 	if err != nil {
 		return nil, err
 	}

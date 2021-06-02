@@ -68,7 +68,7 @@ func runModel(oldCfg, newCfg declcfg.DeclarativeConfig) (model.Model, error) {
 		return nil, fmt.Errorf("error converting new cfg to model: %v", err)
 	}
 
-	diff, err := model.DiffFromOldChannelHeads(oldModel, newModel)
+	diff, err := declcfg.DiffFromOldChannelHeads(oldModel, newModel)
 	if err != nil {
 		return nil, fmt.Errorf("error generating diff: %v", err)
 	}

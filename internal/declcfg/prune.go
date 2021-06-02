@@ -1,4 +1,4 @@
-package model
+package declcfg
 
 import (
 	"fmt"
@@ -6,6 +6,7 @@ import (
 
 	"github.com/blang/semver"
 
+	"github.com/operator-framework/operator-registry/internal/model"
 	"github.com/operator-framework/operator-registry/internal/property"
 )
 
@@ -22,8 +23,8 @@ type pruneConfig map[string]map[string]map[string]struct{}
 
 func rangeAny(semver.Version) bool { return true }
 
-func PruneKeep(fromModel Model, pruneCfg pruneConfig, permissive, heads bool) (prunedModel Model, err error) {
-	prunedModel = Model{}
+func PruneKeep(fromModel model.Model, pruneCfg pruneConfig, permissive, heads bool) (prunedModel model.Model, err error) {
+	prunedModel = model.Model{}
 	if heads {
 		for _, pkg := range fromModel {
 			cPkg := copyPackageEmptyChannels(pkg)
@@ -144,12 +145,12 @@ func PruneKeep(fromModel Model, pruneCfg pruneConfig, permissive, heads bool) (p
 	return prunedModel, nil
 }
 
-func getProvidingBundles(pkg *Package, reqGVKs map[property.GVK]struct{}, reqPkgs map[string][]semver.Range) (providingBundles []*Bundle) {
-	bundlesProvidingGVK := make(map[property.GVK][]*Bundle)
-	var bundlesByRange [][]*Bundle
+func getProvidingBundles(pkg *model.Package, reqGVKs map[property.GVK]struct{}, reqPkgs map[string][]semver.Range) (providingBundles []*model.Bundle) {
+	bundlesProvidingGVK := make(map[property.GVK][]*model.Bundle)
+	var bundlesByRange [][]*model.Bundle
 	ranges, isRequired := reqPkgs[pkg.Name]
 	if isRequired {
-		bundlesByRange = make([][]*Bundle, len(ranges))
+		bundlesByRange = make([][]*model.Bundle, len(ranges))
 	}
 	for _, ch := range pkg.Channels {
 		for _, b := range ch.Bundles {
@@ -166,7 +167,7 @@ func getProvidingBundles(pkg *Package, reqGVKs map[property.GVK]struct{}, reqPkg
 			}
 		}
 	}
-	latestBundles := make(map[string]*Bundle)
+	latestBundles := make(map[string]*model.Bundle)
 	for gvk, bundles := range bundlesProvidingGVK {
 		sort.Slice(bundles, func(i, j int) bool {
 			return bundles[i].Version.LT(bundles[j].Version)
@@ -198,7 +199,7 @@ func getProvidingBundles(pkg *Package, reqGVKs map[property.GVK]struct{}, reqPkg
 	return providingBundles
 }
 
-func getModelDependencies(m Model) (reqGVKs map[property.GVK]struct{}, reqPkgs map[string][]semver.Range, err error) {
+func getModelDependencies(m model.Model) (reqGVKs map[property.GVK]struct{}, reqPkgs map[string][]semver.Range, err error) {
 	reqGVKs = map[property.GVK]struct{}{}
 	reqPkgs = map[string][]semver.Range{}
 	for _, pkg := range m {

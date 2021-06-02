@@ -1,17 +1,18 @@
-package model
+package declcfg
 
 import (
+	"github.com/operator-framework/operator-registry/internal/model"
 	"github.com/operator-framework/operator-registry/internal/property"
 
 	"github.com/blang/semver"
 )
 
 // TODO: add new GVK/package dependencies.
-func DiffFromOldChannelHeads(oldModel, newModel Model) (Model, error) {
-	diff := Model{}
+func DiffFromOldChannelHeads(oldModel, newModel model.Model) (model.Model, error) {
+	diff := model.Model{}
 	for _, newPkg := range newModel {
 		diffPkg := copyPackageEmptyChannels(newPkg)
-		diffPkg.Channels = make(map[string]*Channel)
+		diffPkg.Channels = make(map[string]*model.Channel)
 		diff[diffPkg.Name] = diffPkg
 		oldPkg, hasPkg := oldModel[newPkg.Name]
 		if !hasPkg {
@@ -51,14 +52,14 @@ func DiffFromOldChannelHeads(oldModel, newModel Model) (Model, error) {
 	return diff, nil
 }
 
-func copyPackageEmptyChannels(in *Package) *Package {
-	cp := &Package{
+func copyPackageEmptyChannels(in *model.Package) *model.Package {
+	cp := &model.Package{
 		Name:        in.Name,
 		Description: in.Description,
-		Channels:    map[string]*Channel{},
+		Channels:    map[string]*model.Channel{},
 	}
 	if in.Icon != nil {
-		cp.Icon = &Icon{
+		cp.Icon = &model.Icon{
 			Data:      make([]byte, len(in.Icon.Data)),
 			MediaType: in.Icon.MediaType,
 		}
@@ -67,17 +68,17 @@ func copyPackageEmptyChannels(in *Package) *Package {
 	return cp
 }
 
-func copyChannelEmptyBundles(in *Channel, pkg *Package) *Channel {
-	cp := &Channel{
+func copyChannelEmptyBundles(in *model.Channel, pkg *model.Package) *model.Channel {
+	cp := &model.Channel{
 		Name:    in.Name,
 		Package: pkg,
-		Bundles: map[string]*Bundle{},
+		Bundles: map[string]*model.Bundle{},
 	}
 	return cp
 }
 
-func copyBundle(in *Bundle, ch *Channel, pkg *Package) *Bundle {
-	cp := &Bundle{
+func copyBundle(in *model.Bundle, ch *model.Channel, pkg *model.Package) *model.Bundle {
+	cp := &model.Bundle{
 		Name:          in.Name,
 		Channel:       ch,
 		Package:       pkg,
@@ -85,7 +86,7 @@ func copyBundle(in *Bundle, ch *Channel, pkg *Package) *Bundle {
 		Replaces:      in.Replaces,
 		Skips:         make([]string, len(in.Skips)),
 		Properties:    make([]property.Property, len(in.Properties)),
-		RelatedImages: make([]RelatedImage, len(in.RelatedImages)),
+		RelatedImages: make([]model.RelatedImage, len(in.RelatedImages)),
 		Version:       semver.MustParse(in.Version.String()),
 	}
 	copy(cp.Skips, in.Skips)
@@ -95,9 +96,9 @@ func copyBundle(in *Bundle, ch *Channel, pkg *Package) *Bundle {
 	return cp
 }
 
-func diffChannelsFrom(newCh, oldCh *Channel, start *Bundle) (replacingBundles []*Bundle, err error) {
+func diffChannelsFrom(newCh, oldCh *model.Channel, start *model.Bundle) (replacingBundles []*model.Bundle, err error) {
 
-	oldChain := map[string]*Bundle{start.Name: nil}
+	oldChain := map[string]*model.Bundle{start.Name: nil}
 	for next := start; next != nil && next.Replaces != ""; next = oldCh.Bundles[next.Replaces] {
 		oldChain[next.Replaces] = next
 	}
@@ -116,7 +117,7 @@ func diffChannelsFrom(newCh, oldCh *Channel, start *Bundle) (replacingBundles []
 	}
 
 	if intersection == "" {
-		bundles := map[string]*Bundle{}
+		bundles := map[string]*model.Bundle{}
 		for _, b := range oldCh.Bundles {
 			bundles[b.Name] = b
 		}
@@ -129,8 +130,8 @@ func diffChannelsFrom(newCh, oldCh *Channel, start *Bundle) (replacingBundles []
 		return replacingBundles, nil
 	}
 
-	allReplaces := map[string][]*Bundle{}
-	replacesIntersection := []*Bundle{}
+	allReplaces := map[string][]*model.Bundle{}
+	replacesIntersection := []*model.Bundle{}
 	for _, b := range newCh.Bundles {
 		if b.Replaces == "" {
 			continue
@@ -141,10 +142,10 @@ func diffChannelsFrom(newCh, oldCh *Channel, start *Bundle) (replacingBundles []
 		}
 	}
 
-	replacesSet := map[string]*Bundle{}
+	replacesSet := map[string]*model.Bundle{}
 	for _, b := range replacesIntersection {
 		currName := ""
-		for next := []*Bundle{b}; len(next) > 0; next = next[1:] {
+		for next := []*model.Bundle{b}; len(next) > 0; next = next[1:] {
 			currName = next[0].Name
 			if _, seen := replacesSet[currName]; !seen {
 				replacers := allReplaces[currName]

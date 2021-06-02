@@ -1,9 +1,10 @@
-package model
+package declcfg
 
 import (
 	"sort"
 	"testing"
 
+	"github.com/operator-framework/operator-registry/internal/model"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -11,13 +12,13 @@ import (
 func TestDiffChannelsFrom(t *testing.T) {
 	type spec struct {
 		name       string
-		newBundles []*Bundle
-		oldBundles []*Bundle
-		start      *Bundle
-		expDiff    []*Bundle
+		newBundles []*model.Bundle
+		oldBundles []*model.Bundle
+		start      *model.Bundle
+		expDiff    []*model.Bundle
 	}
 
-	bundles1 := []*Bundle{
+	bundles1 := []*model.Bundle{
 		newReplacingBundle("anakin.v0.0.1", ""),
 		newReplacingBundle("anakin.v0.0.2", "anakin.v0.0.1"),
 		newReplacingBundle("anakin.v0.0.3", "anakin.v0.0.2"),
@@ -60,11 +61,11 @@ func TestDiffChannelsFrom(t *testing.T) {
 	}
 	for _, s := range specs {
 		t.Run(s.name, func(t *testing.T) {
-			newCh := &Channel{Bundles: make(map[string]*Bundle, len(s.newBundles))}
+			newCh := &model.Channel{Bundles: make(map[string]*model.Bundle, len(s.newBundles))}
 			for _, b := range s.newBundles {
 				newCh.Bundles[b.Name] = b
 			}
-			oldCh := &Channel{Bundles: make(map[string]*Bundle, len(s.oldBundles))}
+			oldCh := &model.Channel{Bundles: make(map[string]*model.Bundle, len(s.oldBundles))}
 			for _, b := range s.oldBundles {
 				oldCh.Bundles[b.Name] = b
 			}
@@ -80,15 +81,15 @@ func TestDiffChannelsFrom(t *testing.T) {
 	}
 }
 
-func newReplacingBundle(name, replaces string, skips ...string) *Bundle {
-	return &Bundle{Name: name, Replaces: replaces, Skips: skips}
+func newReplacingBundle(name, replaces string, skips ...string) *model.Bundle {
+	return &model.Bundle{Name: name, Replaces: replaces, Skips: skips}
 }
 
 type bundleReplaces struct {
 	Name, Replaces string
 }
 
-func collectBundleReplaces(bundles []*Bundle) (brs []bundleReplaces) {
+func collectBundleReplaces(bundles []*model.Bundle) (brs []bundleReplaces) {
 	for _, b := range bundles {
 		brs = append(brs, bundleReplaces{Name: b.Name, Replaces: b.Replaces})
 	}
@@ -96,22 +97,22 @@ func collectBundleReplaces(bundles []*Bundle) (brs []bundleReplaces) {
 }
 
 func TestDiffFromOldChannelHeads(t *testing.T) {
-	oldPkg := &Package{Name: "old"}
-	oldModel := Model{oldPkg.Name: oldPkg}
-	oldCh := &Channel{Name: "alpha", Package: oldPkg}
-	oldPkg.Channels = map[string]*Channel{oldCh.Name: oldCh}
+	oldPkg := &model.Package{Name: "old"}
+	oldModel := model.Model{oldPkg.Name: oldPkg}
+	oldCh := &model.Channel{Name: "alpha", Package: oldPkg}
+	oldPkg.Channels = map[string]*model.Channel{oldCh.Name: oldCh}
 	oldPkg.DefaultChannel = oldCh
-	oldBundle := &Bundle{Name: "operator.v0.1.0", Package: oldPkg, Channel: oldCh}
-	oldCh.Bundles = map[string]*Bundle{oldBundle.Name: oldBundle}
+	oldBundle := &model.Bundle{Name: "operator.v0.1.0", Package: oldPkg, Channel: oldCh}
+	oldCh.Bundles = map[string]*model.Bundle{oldBundle.Name: oldBundle}
 
 	oldPkgCp := copyPackageEmptyChannels(oldPkg)
-	newModel := Model{oldPkgCp.Name: oldPkgCp}
+	newModel := model.Model{oldPkgCp.Name: oldPkgCp}
 	oldChCp := copyChannelEmptyBundles(oldCh, oldPkgCp)
-	oldPkgCp.Channels = map[string]*Channel{oldChCp.Name: oldChCp}
+	oldPkgCp.Channels = map[string]*model.Channel{oldChCp.Name: oldChCp}
 	oldPkgCp.DefaultChannel = oldChCp
-	newBundle := &Bundle{Name: "operator.v0.1.1", Package: oldPkgCp, Channel: oldChCp, Replaces: oldBundle.Name}
+	newBundle := &model.Bundle{Name: "operator.v0.1.1", Package: oldPkgCp, Channel: oldChCp, Replaces: oldBundle.Name}
 	oldBundleCp := copyBundle(oldBundle, oldChCp, oldPkgCp)
-	oldChCp.Bundles = map[string]*Bundle{
+	oldChCp.Bundles = map[string]*model.Bundle{
 		oldBundleCp.Name: oldBundleCp,
 		newBundle.Name:   newBundle,
 	}
