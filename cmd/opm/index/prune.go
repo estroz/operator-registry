@@ -7,9 +7,9 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
+	"gopkg.in/yaml.v2"
 
 	"github.com/operator-framework/operator-registry/internal/action"
-	"github.com/operator-framework/operator-registry/internal/declcfg"
 	"github.com/operator-framework/operator-registry/pkg/containertools"
 	"github.com/operator-framework/operator-registry/pkg/lib/indexer"
 	"github.com/operator-framework/operator-registry/pkg/lib/registry"
@@ -56,9 +56,9 @@ func newIndexPruneCmd() *cobra.Command {
 	}
 
 	if isAlphaPrune {
-		indexCmd.Flags().String("prune-config-dir", "", "prune config directory")
-		if err := indexCmd.MarkFlagRequired("prune-config-dir"); err != nil {
-			logrus.Panic("Failed to set required `prune-config-dir` flag for `index prune`")
+		indexCmd.Flags().String("prune-config", "", "prune config directory")
+		if err := indexCmd.MarkFlagRequired("prune-config"); err != nil {
+			logrus.Panic("Failed to set required `prune-config` flag for `index prune`")
 		}
 		indexCmd.Flags().Bool("keep", false, "interpret prune configs as an allow-list; "+
 			"by default all packages, channels, and bundles in prune configs are removed")
@@ -135,6 +135,7 @@ func runIndexPruneCmdFunc(cmd *cobra.Command, args []string) error {
 	switch {
 	case isAlphaPrune:
 		logger = logger.WithFields(logrus.Fields{"pruner": "config"})
+		logger.Logger.SetOutput(os.Stderr)
 		regPruner, err = configurePruner(cmd.Flags(), logger)
 		if err != nil {
 			return err
@@ -163,16 +164,19 @@ func runIndexPruneCmdFunc(cmd *cobra.Command, args []string) error {
 
 func configurePruner(fs *pflag.FlagSet, logger *logrus.Entry) (p action.PruneRegistry, err error) {
 	p.Logger = logger
+	p.W = os.Stdout
 
-	cfgDir, err := fs.GetString("prune-config-dir")
+	pruneCfgFile, err := fs.GetString("prune-config")
 	if err != nil {
 		return p, err
 	}
-	cfg, err := declcfg.LoadDir(cfgDir)
+	b, err := os.ReadFile(pruneCfgFile)
 	if err != nil {
 		return p, err
 	}
-	p.Config = *cfg
+	if err := yaml.Unmarshal(b, &p.Config); err != nil {
+		return p, err
+	}
 
 	if p.Keep, err = fs.GetBool("keep"); err != nil {
 		return p, err

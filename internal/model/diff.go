@@ -1,8 +1,6 @@
 package model
 
 import (
-	"fmt"
-
 	"github.com/operator-framework/operator-registry/internal/property"
 
 	"github.com/blang/semver"
@@ -12,7 +10,6 @@ import (
 func DiffFromOldChannelHeads(oldModel, newModel Model) (Model, error) {
 	diff := Model{}
 	for _, newPkg := range newModel {
-		fmt.Println("package", newPkg.Name)
 		diffPkg := copyPackageEmptyChannels(newPkg)
 		diffPkg.Channels = make(map[string]*Channel)
 		diff[diffPkg.Name] = diffPkg
@@ -21,7 +18,6 @@ func DiffFromOldChannelHeads(oldModel, newModel Model) (Model, error) {
 			oldPkg = copyPackageEmptyChannels(newPkg)
 		}
 		for _, newCh := range newPkg.Channels {
-			fmt.Println("\tchannel", newCh.Name)
 			diffCh := copyChannelEmptyBundles(newCh, diffPkg)
 			diffPkg.Channels[diffCh.Name] = diffCh
 			oldCh, hasCh := oldPkg.Channels[newCh.Name]
@@ -31,7 +27,6 @@ func DiffFromOldChannelHeads(oldModel, newModel Model) (Model, error) {
 					return nil, err
 				}
 				diffHead := copyBundle(head, diffCh, diffPkg)
-				fmt.Println("\t\tadding diff head", diffHead.Name, "to", diffCh.Name)
 				// Since this head is the only bundle in diffCh, it replaces nothing.
 				diffHead.Replaces = ""
 				diffCh.Bundles[diffHead.Name] = diffHead
@@ -40,20 +35,17 @@ func DiffFromOldChannelHeads(oldModel, newModel Model) (Model, error) {
 				if err != nil {
 					return nil, err
 				}
-				fmt.Println("\t\tfrom old head", oldHead.Name)
 				bundleDiff, err := diffChannelsFrom(newCh, oldCh, oldHead)
 				if err != nil {
 					return nil, err
 				}
 				for _, b := range bundleDiff {
-					fmt.Println("\t\t\tadding", b.Name, "to", b.Channel.Name)
 					diff.AddBundle(*copyBundle(b, diffCh, diffPkg))
 				}
 			}
 		}
 
 		diffPkg.DefaultChannel = diffPkg.Channels[newPkg.DefaultChannel.Name]
-		fmt.Println()
 	}
 
 	return diff, nil
@@ -114,19 +106,16 @@ func diffChannelsFrom(newCh, oldCh *Channel, start *Bundle) (replacingBundles []
 	if err != nil {
 		return nil, err
 	}
-	fmt.Println("new head:", next.Name, "replaces", next.Replaces)
 	var intersection string
 	for next != nil && next.Replaces != "" {
 		if _, inChain := oldChain[next.Replaces]; inChain {
 			intersection = next.Replaces
-			fmt.Println("intersection:", intersection)
 			break
 		}
 		next = newCh.Bundles[next.Replaces]
 	}
 
 	if intersection == "" {
-		fmt.Println("no intersection")
 		bundles := map[string]*Bundle{}
 		for _, b := range oldCh.Bundles {
 			bundles[b.Name] = b
