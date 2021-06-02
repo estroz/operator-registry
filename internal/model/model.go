@@ -43,8 +43,6 @@ type Package struct {
 	Icon           *Icon
 	DefaultChannel *Channel
 	Channels       map[string]*Channel
-
-	TakeAction bool
 }
 
 func (m *Package) Validate() error {
@@ -134,8 +132,6 @@ type Channel struct {
 	Package *Package
 	Name    string
 	Bundles map[string]*Bundle
-
-	TakeAction bool
 }
 
 // TODO(joelanford): This function determines the channel head by finding the bundle that has 0
@@ -215,7 +211,6 @@ type Bundle struct {
 	RelatedImages []RelatedImage
 	Version       semver.Version
 	PropertiesP   *property.Properties
-	TakeAction    bool
 
 	// These fields are present so that we can continue serving
 	// the GRPC API the way packageserver expects us to in a

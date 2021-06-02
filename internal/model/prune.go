@@ -24,47 +24,78 @@ func rangeAny(semver.Version) bool { return true }
 
 func PruneKeep(fromModel Model, pruneCfg pruneConfig, permissive, heads bool) (prunedModel Model, err error) {
 	prunedModel = Model{}
-	for _, pkg := range fromModel {
-		prunePkg, keepPkg := pruneCfg[pkg.Name]
-		if keepPkg || heads {
+	if heads {
+		for _, pkg := range fromModel {
 			cPkg := copyPackageEmptyChannels(pkg)
-			prunedModel[pkg.Name] = cPkg
+			prunedModel[cPkg.Name] = cPkg
 			for _, ch := range pkg.Channels {
-				if keepPkg {
-					pruneCh, keepChannel := prunePkg[ch.Name]
-					if keepChannel || heads {
-						cCh := copyChannelEmptyBundles(ch, cPkg)
-						cPkg.Channels[cCh.Name] = cCh
-						if keepChannel {
-							for _, b := range ch.Bundles {
-								if len(pruneCh) == 0 {
-									prunedModel.AddBundle(*copyBundle(b, cCh, cPkg))
-								} else {
-									if _, keepBundle := pruneCh[b.Name]; keepBundle {
-										prunedModel.AddBundle(*copyBundle(b, cCh, cPkg))
-									}
-								}
-							}
-						} else {
-							head, err := ch.Head()
-							if err != nil {
-								return nil, err
-							}
-							prunedModel.AddBundle(*copyBundle(head, cCh, cPkg))
-						}
-					}
-				} else {
-					cCh := copyChannelEmptyBundles(ch, cPkg)
-					cPkg.Channels[cCh.Name] = cCh
-					head, err := ch.Head()
-					if err != nil {
-						return nil, err
-					}
-					prunedModel.AddBundle(*copyBundle(head, cCh, cPkg))
+				cCh := copyChannelEmptyBundles(ch, cPkg)
+				cPkg.Channels[cCh.Name] = cCh
+				head, err := ch.Head()
+				if err != nil {
+					return nil, err
 				}
+				prunedModel.AddBundle(*copyBundle(head, cCh, cPkg))
 			}
 		}
 	}
+	for pkgName, pruneChannels := range pruneCfg {
+		var cPkg *Package
+		pkg, hasPkg := fromModel[pkgName]
+		if !hasPkg {
+			if !permissive {
+				return nil, missingPruneKeyError{keyType: property.TypePackage, key: pkgName}
+			}
+			continue
+		} else if heads {
+			cPkg = prunedModel[pkgName]
+		} else {
+			cPkg = copyPackageEmptyChannels(pkg)
+			prunedModel[pkg.Name] = cPkg
+		}
+		if len(pruneChannels) == 0 {
+			for _, ch := range pkg.Channels {
+				cPkg.Channels[ch.Name] = ch
+			}
+		}
+		for chName, pruneBundles := range pruneChannels {
+			var cCh *Channel
+			ch, hasCh := pkg.Channels[pkgName]
+			if !hasCh {
+				if !permissive {
+					return nil, missingPruneKeyError{keyType: property.TypeChannel, key: chName}
+				}
+				continue
+			} else if heads {
+				cCh = cPkg.Channels[chName]
+			} else {
+				cCh = copyChannelEmptyBundles(ch, cPkg)
+				cPkg.Channels[cCh.Name] = cCh
+			}
+			cPkg.Channels[cCh.Name] = cCh
+			if len(pruneBundles) == 0 {
+				for _, b := range ch.Bundles {
+					prunedModel.AddBundle(*b)
+				}
+			}
+			for bName := range pruneBundles {
+				b, hasBundle := ch.Bundles[bName]
+				if !hasBundle {
+					if !permissive {
+						return nil, missingPruneKeyError{keyType: "olm.bundle", key: bName}
+					}
+					continue
+				} else if heads {
+					if _, created := cCh.Bundles[bName]; created {
+						continue
+					}
+				}
+				prunedModel.AddBundle(*copyBundle(b, cCh, cPkg))
+			}
+		}
+	}
+
+	// TODO: clear replaces on truncated channels.
 
 	reqGVKs := map[property.GVK]struct{}{}
 	reqPkgs := map[string][]semver.Range{}
