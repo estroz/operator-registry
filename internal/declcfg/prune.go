@@ -6,6 +6,7 @@ import (
 
 	"github.com/blang/semver"
 	"github.com/hashicorp/go-multierror"
+	"k8s.io/apimachinery/pkg/util/sets"
 
 	"github.com/operator-framework/operator-registry/internal/model"
 	"github.com/operator-framework/operator-registry/internal/property"
@@ -24,10 +25,16 @@ type pruneConfig map[string]map[string]map[string]struct{}
 
 func rangeAny(semver.Version) bool { return true }
 
-func PruneKeep(fromModel model.Model, pruneCfg pruneConfig, permissive, heads bool) (prunedModel model.Model, err error) {
+func PruneKeep(idx *PackageIndex, pruneCfg pruneConfig, permissive, heads bool) (prunedModel model.Model, err error) {
+	pkgNames := idx.GetPackageNames()
+	pkgNameSet := sets.NewString(pkgNames...)
 	prunedModel = model.Model{}
 	if heads {
-		for _, pkg := range fromModel {
+		for _, pkgName := range pkgNames {
+			pkg, err := idx.LoadPackageModel(pkgName)
+			if err != nil {
+				return nil, err
+			}
 			cPkg := copyPackageEmptyChannels(pkg)
 			prunedModel[cPkg.Name] = cPkg
 			for _, ch := range pkg.Channels {
@@ -42,12 +49,15 @@ func PruneKeep(fromModel model.Model, pruneCfg pruneConfig, permissive, heads bo
 		}
 	}
 	for pkgName, pruneChannels := range pruneCfg {
-		pkg, hasPkg := fromModel[pkgName]
-		if !hasPkg {
+		if !pkgNameSet.Has(pkgName) {
 			if !permissive {
 				return nil, missingPruneKeyError{keyType: property.TypePackage, key: pkgName}
 			}
 			continue
+		}
+		pkg, err := idx.LoadPackageModel(pkgName)
+		if err != nil {
+			return nil, err
 		}
 		if !heads {
 			prunedModel[pkgName] = copyPackageEmptyChannels(pkg)
@@ -125,7 +135,11 @@ func PruneKeep(fromModel model.Model, pruneCfg pruneConfig, permissive, heads bo
 		}
 	}
 
-	for _, pkg := range fromModel {
+	for _, pkgName := range pkgNames {
+		pkg, err := idx.LoadPackageModel(pkgName)
+		if err != nil {
+			return nil, err
+		}
 		for _, b := range getProvidingBundles(pkg, reqGVKs, reqPkgs) {
 			ppkg, hasPkg := prunedModel[b.Package.Name]
 			if !hasPkg {
@@ -207,39 +221,6 @@ func getProvidingBundles(pkg *model.Package, reqGVKs map[property.GVK]struct{}, 
 	}
 
 	return providingBundles
-}
-
-func getModelDependencies(m model.Model) (reqGVKs map[property.GVK]struct{}, reqPkgs map[string][]semver.Range, err error) {
-	reqGVKs = map[property.GVK]struct{}{}
-	reqPkgs = map[string][]semver.Range{}
-	for _, pkg := range m {
-		for _, ch := range pkg.Channels {
-			for _, b := range ch.Bundles {
-				for _, gvkReq := range b.PropertiesP.GVKsRequired {
-					gvk := property.GVK{
-						Group:   gvkReq.Group,
-						Version: gvkReq.Version,
-						Kind:    gvkReq.Kind,
-					}
-					reqGVKs[gvk] = struct{}{}
-				}
-				for _, pkgReq := range b.PropertiesP.PackagesRequired {
-					var inRange semver.Range
-					if pkgReq.VersionRange != "" {
-						if inRange, err = semver.ParseRange(pkgReq.VersionRange); err != nil {
-							// Should never happen since model has been validated.
-							return nil, nil, err
-						}
-					} else {
-						inRange = rangeAny
-					}
-					reqPkgs[pkgReq.PackageName] = append(reqPkgs[pkgReq.PackageName], inRange)
-				}
-			}
-		}
-	}
-
-	return reqGVKs, reqPkgs, nil
 }
 
 func gvkSetToSlice(gvkSet map[property.GVK]struct{}) property.GVKs {

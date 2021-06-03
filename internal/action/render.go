@@ -34,35 +34,52 @@ func nullLogger() *logrus.Entry {
 }
 
 func (r Render) Run(ctx context.Context) (*declcfg.DeclarativeConfig, error) {
+	idx := declcfg.NewPackageIndex()
+	defer func() {
+		if err := idx.Cleanup(); err != nil {
+			logrus.Error(err)
+		}
+	}()
+	if err := r.index(ctx, idx); err != nil {
+		return nil, err
+	}
+
+	var cfgs []declcfg.DeclarativeConfig
+	for _, pkgName := range idx.GetPackageNames() {
+		cfg, err := idx.LoadPackageConfig(pkgName)
+		if err != nil {
+			return nil, err
+		}
+		cfgs = append(cfgs, *cfg)
+	}
+
+	return combineConfigs(cfgs), nil
+}
+
+func (r Render) index(ctx context.Context, idx *declcfg.PackageIndex) error {
 	if r.Registry == nil {
 		reg, err := r.createRegistry()
 		if err != nil {
-			return nil, fmt.Errorf("create registry: %v", err)
+			return fmt.Errorf("create registry: %v", err)
 		}
 		defer reg.Destroy()
 		r.Registry = reg
 	}
 
-	var cfgs []declcfg.DeclarativeConfig
 	for _, ref := range r.Refs {
-		var (
-			cfg *declcfg.DeclarativeConfig
-			err error
-		)
-		// TODO(joelanford): Add support for detecting and rendering sqlite files.
+		var err error
 		if stat, serr := os.Stat(ref); serr == nil && stat.IsDir() {
-			cfg, err = declcfg.LoadDir(ref)
+			err = idx.IndexDir(ref)
+			// cfg, err = declcfg.LoadDir(ref)
 		} else {
-			cfg, err = r.imageToDeclcfg(ctx, ref)
+			err = r.indexImage(ctx, idx, ref)
 		}
 		if err != nil {
-			return nil, fmt.Errorf("render reference %q: %v", ref, err)
+			return fmt.Errorf("render reference %q: %v", ref, err)
 		}
-		renderBundleObjects(cfg)
-		cfgs = append(cfgs, *cfg)
 	}
 
-	return combineConfigs(cfgs), nil
+	return nil
 }
 
 func (r Render) createRegistry() (*containerdregistry.Registry, error) {
@@ -85,45 +102,48 @@ func (r Render) createRegistry() (*containerdregistry.Registry, error) {
 	return reg, nil
 }
 
-func (r Render) imageToDeclcfg(ctx context.Context, imageRef string) (*declcfg.DeclarativeConfig, error) {
+func (r Render) indexImage(ctx context.Context, idx *declcfg.PackageIndex, imageRef string) error {
 	ref := image.SimpleReference(imageRef)
 	if err := r.Registry.Pull(ctx, ref); err != nil {
-		return nil, err
+		return err
 	}
 	labels, err := r.Registry.Labels(ctx, ref)
 	if err != nil {
-		return nil, err
+		return err
 	}
 	tmpDir, err := ioutil.TempDir("", "render-unpack-")
 	if err != nil {
-		return nil, err
+		return err
 	}
 	defer os.RemoveAll(tmpDir)
 	if err := r.Registry.Unpack(ctx, ref, tmpDir); err != nil {
-		return nil, err
+		return err
 	}
 
-	var cfg *declcfg.DeclarativeConfig
 	if dbFile, ok := labels[containertools.DbLocationLabel]; ok {
-		cfg, err = sqliteToDeclcfg(ctx, filepath.Join(tmpDir, dbFile))
-		if err != nil {
-			return nil, err
+		if err = addSQLiteToPackageIndex(ctx, filepath.Join(tmpDir, dbFile), idx); err != nil {
+			return err
 		}
 	} else if configsDir, ok := labels["operators.operatorframework.io.index.configs.v1"]; ok {
 		// TODO(joelanford): Make a constant for above configs location label
-		cfg, err = declcfg.LoadDir(filepath.Join(tmpDir, configsDir))
-		if err != nil {
-			return nil, err
+		tmpConfigsDir := filepath.Join(tmpDir, configsDir)
+		// TODO: does renderBundleObjects need to be called on these configs?
+		if err = idx.IndexDir(tmpConfigsDir); err != nil {
+			return err
 		}
 	} else if _, ok := labels[bundle.PackageLabel]; ok {
 		img, err := registry.NewImageInput(ref, tmpDir)
 		if err != nil {
-			return nil, err
+			return err
 		}
 
-		cfg, err = bundleToDeclcfg(img.Bundle)
+		cfg, err := bundleToDeclcfg(img.Bundle)
 		if err != nil {
-			return nil, err
+			return err
+		}
+		renderBundleObjects(cfg)
+		if err := idx.Add(cfg); err != nil {
+			return err
 		}
 	} else {
 		labelKeys := sets.StringKeySet(labels)
@@ -132,40 +152,50 @@ func (r Render) imageToDeclcfg(ctx context.Context, imageRef string) (*declcfg.D
 			labelVals = append(labelVals, fmt.Sprintf("  %s=%s", k, labels[k]))
 		}
 		if len(labelVals) > 0 {
-			return nil, fmt.Errorf("render %q: image type could not be determined, found labels\n%s", ref, strings.Join(labelVals, "\n"))
+			return fmt.Errorf("render %q: image type could not be determined, found labels\n%s", ref, strings.Join(labelVals, "\n"))
 		} else {
-			return nil, fmt.Errorf("render %q: image type could not be determined: image has no labels", ref)
+			return fmt.Errorf("render %q: image type could not be determined: image has no labels", ref)
 		}
 	}
-	return cfg, nil
+	return nil
 }
 
-func sqliteToDeclcfg(ctx context.Context, dbFile string) (*declcfg.DeclarativeConfig, error) {
+func addSQLiteToPackageIndex(ctx context.Context, dbFile string, idx *declcfg.PackageIndex) error {
 	db, err := sqlite.Open(dbFile)
 	if err != nil {
-		return nil, err
+		return err
 	}
 
 	migrator, err := sqlite.NewSQLLiteMigrator(db)
 	if err != nil {
-		return nil, err
+		return err
 	}
 	if migrator == nil {
-		return nil, fmt.Errorf("failed to load migrator")
+		return fmt.Errorf("failed to load migrator")
 	}
 
 	if err := migrator.Migrate(ctx); err != nil {
-		return nil, err
+		return err
 	}
 
 	q := sqlite.NewSQLLiteQuerierFromDb(db)
-	m, err := sqlite.ToModel(ctx, q)
+	pkgNames, err := q.ListPackages(ctx)
 	if err != nil {
-		return nil, err
+		return err
 	}
+	for _, pkgName := range pkgNames {
+		m, err := sqlite.PackageToModel(ctx, q, pkgName)
+		if err != nil {
+			return err
+		}
 
-	cfg := declcfg.ConvertFromModel(m)
-	return &cfg, nil
+		cfg := declcfg.ConvertFromModel(m)
+		renderBundleObjects(&cfg)
+		if err := idx.Add(&cfg); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func bundleToDeclcfg(bundle *registry.Bundle) (*declcfg.DeclarativeConfig, error) {

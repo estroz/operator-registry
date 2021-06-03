@@ -6,11 +6,12 @@ import (
 	"io"
 	"reflect"
 
+	"github.com/sirupsen/logrus"
+
 	"github.com/operator-framework/operator-registry/internal/declcfg"
 	"github.com/operator-framework/operator-registry/internal/model"
 	"github.com/operator-framework/operator-registry/pkg/image"
 	"github.com/operator-framework/operator-registry/pkg/lib/registry"
-	"github.com/sirupsen/logrus"
 )
 
 type Prune struct {
@@ -43,12 +44,12 @@ func (p Prune) Run(ctx context.Context) (*declcfg.DeclarativeConfig, error) {
 	}
 
 	render := Render{Refs: p.Refs, Registry: p.Registry}
-	cfg, err := render.Run(ctx)
-	if err != nil {
+	idx := declcfg.NewPackageIndex()
+	if err := render.index(ctx, idx); err != nil {
 		return nil, err
 	}
 
-	toModel, err := p.runModel(*cfg)
+	toModel, err := p.runIndex(idx)
 	if err != nil {
 		return nil, err
 	}
@@ -96,12 +97,7 @@ func (p Prune) validate() error {
 	return nil
 }
 
-func (p Prune) runModel(cfg declcfg.DeclarativeConfig) (toModel model.Model, err error) {
-	fromModel, err := declcfg.ConvertToModel(cfg)
-	if err != nil {
-		return nil, err
-	}
-
+func (p Prune) runIndex(idx *declcfg.PackageIndex) (toModel model.Model, err error) {
 	pruneCfg := make(map[string]map[string]map[string]struct{}, len(p.Config))
 	for _, pkg := range p.Config {
 		pruneCfg[pkg.Name] = make(map[string]map[string]struct{}, len(pkg.Channels))
@@ -113,7 +109,7 @@ func (p Prune) runModel(cfg declcfg.DeclarativeConfig) (toModel model.Model, err
 		}
 	}
 
-	toModel, err = declcfg.PruneKeep(fromModel, pruneCfg, p.Permissive, p.KeepHeads)
+	toModel, err = declcfg.PruneKeep(idx, pruneCfg, p.Permissive, p.KeepHeads)
 	if err != nil {
 		return nil, err
 	}

@@ -60,7 +60,7 @@ func TestIndexDir(t *testing.T) {
 				err := afero.WriteFile(subFS, fmt.Sprintf("%d.yaml", i), []byte(indexData), os.ModePerm)
 				require.NoError(t, err)
 			}
-			s.assertion(t, idx.indexDir(configsDir))
+			s.assertion(t, idx.IndexDir(configsDir))
 
 			infos, err := afero.ReadDir(idx.fs, idx.cacheDir)
 			require.NoError(t, err)
@@ -71,7 +71,7 @@ func TestIndexDir(t *testing.T) {
 				assert.Contains(t, s.expectPkgs, dirInfo.Name())
 
 				// Loads from a file successfully.
-				cfg, err := idx.LoadPackage(dirInfo.Name())
+				cfg, err := idx.LoadPackageConfig(dirInfo.Name())
 				require.NoError(t, err)
 
 				// Equal output.
@@ -82,7 +82,7 @@ func TestIndexDir(t *testing.T) {
 			}
 
 			require.NoError(t, idx.Cleanup())
-			_, err = idx.LoadPackage("somepkg")
+			_, err = idx.LoadPackageConfig("somepkg")
 			require.Error(t, err)
 			require.Equal(t, "package indexer is already cleaned up", err.Error())
 		})

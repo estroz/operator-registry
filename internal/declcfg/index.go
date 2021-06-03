@@ -8,10 +8,13 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/afero"
 	"k8s.io/apimachinery/pkg/util/yaml"
+
+	"github.com/operator-framework/operator-registry/internal/model"
 )
 
 // PackageIndex loads declarative config packages from a filesystem cache.
@@ -20,33 +23,89 @@ import (
 type PackageIndex struct {
 	fs          afero.Fs
 	cacheDir    string
+	cacheOnce   sync.Once
 	pkgEncoders map[string]encoder
 	cleanups    []func()
 	cleanedUp   bool
 }
 
-// IndexDir caches all configs for each package in a package file
-// in order to load a single package into memory later via the returned
-// PackageIndex.
-func IndexDir(configDir string) (idx *PackageIndex, err error) {
-	idx = &PackageIndex{
+func NewPackageIndex() *PackageIndex {
+	return &PackageIndex{
 		fs:          afero.NewOsFs(),
 		pkgEncoders: map[string]encoder{},
 	}
-	if err := idx.indexDir(configDir); err != nil {
+}
+
+// IndexDir caches all configs for each package in a package file
+// in order to load a single package into memory later via the returned
+// PackageIndex.
+func IndexDir(configDir string) (*PackageIndex, error) {
+	idx := NewPackageIndex()
+	if err := idx.IndexDir(configDir); err != nil {
 		return nil, err
 	}
 	return idx, nil
 }
 
-func (idx *PackageIndex) indexDir(configDir string) (err error) {
-	defer func() {
-		for _, cleanup := range idx.cleanups {
-			cleanup()
+func (idx *PackageIndex) init() (err error) {
+	idx.cacheOnce.Do(func() {
+		if idx.cacheDir, err = afero.TempDir(idx.fs, "", "declcfg_cache."); err != nil {
+			err = fmt.Errorf("error creating cache dir: %v", err)
+			return
 		}
-	}()
-	if idx.cacheDir, err = afero.TempDir(idx.fs, "", "declcfg_cache."); err != nil {
-		return fmt.Errorf("error creating cache dir: %v", err)
+	})
+	return err
+}
+
+// Add adds cfg to a PackageIndex. Add can be called multiple times on different cfgs.
+func (idx *PackageIndex) Add(cfg *DeclarativeConfig) error {
+	if err := idx.init(); err != nil {
+		return err
+	}
+
+	for _, pkg := range cfg.Packages {
+		if err := idx.add(pkg.Name, pkg); err != nil {
+			return err
+		}
+	}
+	for _, b := range cfg.Bundles {
+		if err := idx.add(b.Package, b); err != nil {
+			return err
+		}
+	}
+	for _, other := range cfg.Others {
+		if err := idx.add(defaultObjectName(other), other); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func defaultObjectName(meta Meta) (pkgName string) {
+	if pkgName = meta.Package; pkgName == "" {
+		pkgName = globalName
+	}
+	return pkgName + ".object"
+}
+
+func (idx *PackageIndex) add(pkgName string, obj interface{}) error {
+	enc, err := idx.getPackageEncoder(pkgName)
+	if err != nil {
+		return fmt.Errorf("error getting writer for package %q: %v", pkgName, err)
+	}
+	if err := enc.Encode(obj); err != nil {
+		return fmt.Errorf("error encoding config object for package %q: %v", pkgName, err)
+	}
+	return nil
+}
+
+// IndexDir caches all configs for each package in a package file
+// in order to load a single package into memory later via PackageIndex.
+// IndexDir can be called multiple times on different configDirs.
+func (idx *PackageIndex) IndexDir(configDir string) (err error) {
+	if err := idx.init(); err != nil {
+		return err
 	}
 
 	walker := &dirWalker{fs: idx.fs}
@@ -87,19 +146,12 @@ func (idx *PackageIndex) indexDir(configDir string) (err error) {
 				continue
 			default:
 				// TODO: enable loading these.
-				if pkgName = in.Package; pkgName == "" {
-					pkgName = globalName
-				}
-				pkgName += ".object"
+				pkgName = defaultObjectName(in)
 				obj = in
 			}
 
-			enc, err := idx.getPackageEncoder(pkgName)
-			if err != nil {
-				return fmt.Errorf("error getting writer for package %q: %v", pkgName, err)
-			}
-			if err := enc.Encode(obj); err != nil {
-				return fmt.Errorf("error encoding config object for package %q: %v", pkgName, err)
+			if err := idx.add(pkgName, obj); err != nil {
+				return err
 			}
 		}
 		return nil
@@ -139,6 +191,16 @@ func (idx *PackageIndex) getPackageEncoder(pkgName string) (_ encoder, err error
 	return enc, nil
 }
 
+// GetPackageNames returns all package names for typed declarative documents.
+func (idx *PackageIndex) GetPackageNames() (pkgNames []string) {
+	for pkgName := range idx.pkgEncoders {
+		if !strings.HasSuffix(pkgName, ".object") {
+			pkgNames = append(pkgNames, pkgName)
+		}
+	}
+	return pkgNames
+}
+
 type indexCacheModifiedError struct {
 	underlying error
 }
@@ -151,13 +213,26 @@ func (e indexCacheModifiedError) Unwrap() error {
 	return e.underlying
 }
 
-func newIndexCacheModErr(msgf string, vals ...interface{}) error {
+func newIndexCacheModError(msgf string, vals ...interface{}) error {
 	return indexCacheModifiedError{underlying: fmt.Errorf(msgf, vals...)}
 }
 
-// LoadPackage loads the package delcaration and all the package bundles and objects
+// LoadPackageModel calls LoadPackageConfig(pkgName) then calls ConvertToModel() on the result.
+func (idx *PackageIndex) LoadPackageModel(pkgName string) (*model.Package, error) {
+	cfg, err := idx.LoadPackageConfig(pkgName)
+	if err != nil {
+		return nil, err
+	}
+	m, err := ConvertToModel(*cfg)
+	if err != nil {
+		return nil, err
+	}
+	return m[pkgName], nil
+}
+
+// LoadPackageConfig loads the package delcaration and all the package bundles and objects
 // for pkgName from the PackageIndex's filesystem cache.
-func (idx PackageIndex) LoadPackage(pkgName string) (*DeclarativeConfig, error) {
+func (idx *PackageIndex) LoadPackageConfig(pkgName string) (*DeclarativeConfig, error) {
 	if idx.fs == nil {
 		return nil, errors.New("package indexer is not initialized")
 	}
@@ -173,17 +248,24 @@ func (idx PackageIndex) LoadPackage(pkgName string) (*DeclarativeConfig, error) 
 
 	switch pl := len(cfg.Packages); pl {
 	case 0:
-		return nil, newIndexCacheModErr("no package config for package %q found", pkgName)
+		if len(cfg.Bundles) == 0 {
+			return nil, newIndexCacheModError("no package config for package %q found", pkgName)
+		}
+		for _, b := range cfg.Bundles {
+			if b.Package != pkgName {
+				return nil, newIndexCacheModError("package %q found instead of %q", b.Package, pkgName)
+			}
+		}
 	case 1:
 		if cpkgName := cfg.Packages[0].Name; cpkgName != pkgName {
-			return nil, newIndexCacheModErr("package %q found instead of %q", cpkgName, pkgName)
+			return nil, newIndexCacheModError("package %q found instead of %q", cpkgName, pkgName)
 		}
 	default:
 		pkgNames := make([]string, pl)
 		for i, pkg := range cfg.Packages {
 			pkgNames[i] = pkg.Name
 		}
-		return nil, newIndexCacheModErr("multiple package configs for package %q found (%q)",
+		return nil, newIndexCacheModError("multiple package configs for package %q found (%q)",
 			pkgName, strings.Join(pkgNames, ","))
 	}
 
@@ -193,6 +275,14 @@ func (idx PackageIndex) LoadPackage(pkgName string) (*DeclarativeConfig, error) 
 // Cleanup deletes the package index. Run this once done using a PackageIndex.
 // A cleaned-up PackageIndex cannot be used again.
 func (idx *PackageIndex) Cleanup() error {
+	for _, cleanup := range idx.cleanups {
+		cleanup()
+	}
+	if idx.cacheDir != "" {
+		if err := idx.fs.RemoveAll(idx.cacheDir); err != nil {
+			return err
+		}
+	}
 	idx.cleanedUp = true
-	return idx.fs.RemoveAll(idx.cacheDir)
+	return nil
 }

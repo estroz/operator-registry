@@ -33,12 +33,34 @@ func ToModel(ctx context.Context, q *SQLQuerier) (model.Model, error) {
 	return pkgs, nil
 }
 
+func PackageToModel(ctx context.Context, q *SQLQuerier, pkgName string) (model.Model, error) {
+	m, err := initializeModelForPackages(ctx, q, []string{pkgName})
+	if err != nil {
+		return nil, err
+	}
+	if err := populatePackageChannels(ctx, q, m[pkgName]); err != nil {
+		return nil, fmt.Errorf("populate channels: %v", err)
+	}
+	if err := populatePackageIcons(ctx, m, q); err != nil {
+		return nil, fmt.Errorf("populate package icons: %v", err)
+	}
+	if err := m.Validate(); err != nil {
+		return nil, err
+	}
+	m.Normalize()
+	return m, nil
+}
+
 func initializeModelPackages(ctx context.Context, q *SQLQuerier) (model.Model, error) {
 	pkgNames, err := q.ListPackages(ctx)
 	if err != nil {
 		return nil, err
 	}
 
+	return initializeModelForPackages(ctx, q, pkgNames)
+}
+
+func initializeModelForPackages(ctx context.Context, q *SQLQuerier, pkgNames []string) (model.Model, error) {
 	var rPkgs []registry.PackageManifest
 	for _, pkgName := range pkgNames {
 		rPkg, err := q.GetPackage(ctx, pkgName)
@@ -82,6 +104,34 @@ func populateModelChannels(ctx context.Context, pkgs model.Model, q *SQLQuerier)
 			return fmt.Errorf("unknown package %q for bundle %q", bundle.PackageName, bundle.CsvName)
 		}
 
+		pkgChannel, ok := pkg.Channels[bundle.ChannelName]
+		if !ok {
+			return fmt.Errorf("unknown channel %q for bundle %q", bundle.ChannelName, bundle.CsvName)
+		}
+
+		mbundle, err := api.ConvertAPIBundleToModelBundle(bundle)
+		if err != nil {
+			return fmt.Errorf("convert bundle %q: %v", bundle.CsvName, err)
+		}
+		mbundle.Package = pkg
+		mbundle.Channel = pkgChannel
+		pkgChannel.Bundles[bundle.CsvName] = mbundle
+	}
+	return nil
+}
+
+func populatePackageChannels(ctx context.Context, q *SQLQuerier, pkg *model.Package) error {
+	// TODO: this call returns too much data but seems to be the only way to get a full channel with replaces.
+	bundles, err := q.ListBundles(ctx)
+	if err != nil {
+		return err
+	}
+	for _, bundle := range bundles {
+		if bundle.PackageName != pkg.Name {
+			continue
+		}
+
+		fmt.Printf("bundle %s replaces %s\n", bundle.CsvName, bundle.Replaces)
 		pkgChannel, ok := pkg.Channels[bundle.ChannelName]
 		if !ok {
 			return fmt.Errorf("unknown channel %q for bundle %q", bundle.ChannelName, bundle.CsvName)
