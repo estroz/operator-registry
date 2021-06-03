@@ -131,7 +131,6 @@ func populatePackageChannels(ctx context.Context, q *SQLQuerier, pkg *model.Pack
 			continue
 		}
 
-		fmt.Printf("bundle %s replaces %s\n", bundle.CsvName, bundle.Replaces)
 		pkgChannel, ok := pkg.Channels[bundle.ChannelName]
 		if !ok {
 			return fmt.Errorf("unknown channel %q for bundle %q", bundle.ChannelName, bundle.CsvName)

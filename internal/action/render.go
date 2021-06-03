@@ -9,6 +9,8 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/h2non/filetype"
+	"github.com/h2non/filetype/matchers"
 	"github.com/sirupsen/logrus"
 	"k8s.io/apimachinery/pkg/util/sets"
 
@@ -68,9 +70,12 @@ func (r Render) index(ctx context.Context, idx *declcfg.PackageIndex) error {
 
 	for _, ref := range r.Refs {
 		var err error
-		if stat, serr := os.Stat(ref); serr == nil && stat.IsDir() {
-			err = idx.IndexDir(ref)
-			// cfg, err = declcfg.LoadDir(ref)
+		if stat, serr := os.Stat(ref); serr == nil {
+			if stat.IsDir() {
+				err = idx.IndexDir(ref)
+			} else {
+				err = indexDB(ctx, idx, ref)
+			}
 		} else {
 			err = r.indexImage(ctx, idx, ref)
 		}
@@ -157,6 +162,35 @@ func (r Render) indexImage(ctx context.Context, idx *declcfg.PackageIndex, image
 			return fmt.Errorf("render %q: image type could not be determined: image has no labels", ref)
 		}
 	}
+	return nil
+}
+
+func indexDB(ctx context.Context, idx *declcfg.PackageIndex, ref string) error {
+	// Just read enough bytes to detect if ref is an sqlite3 db
+	// so the whole file is not loaded into memory.
+	f, err := os.Open(ref)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		if cerr := f.Close(); cerr != nil {
+			logrus.Error(cerr)
+		}
+	}()
+
+	var buf [4]byte
+	if _, err := f.Read(buf[:]); err != nil {
+		logrus.Debugf("failed to read first 4 bytes of ref %q: %v", ref, err)
+		return nil
+	}
+
+	typ := filetype.MatchMap(buf[:], matchers.Archive)
+	if typ == matchers.TypeSqlite {
+		return addSQLiteToPackageIndex(ctx, ref, idx)
+	}
+
+	logrus.Debugf("unknown file type %q of ref %q", typ, ref)
+
 	return nil
 }
 

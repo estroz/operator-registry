@@ -116,6 +116,75 @@ func TestRender(t *testing.T) {
 			assertion: require.NoError,
 		},
 		{
+			name: "Success/SqliteDB",
+			render: action.Render{
+				Refs:     []string{"testdata/foo-index-v0.2.0-sqlite/database/index.db"},
+				Registry: registry,
+			},
+			expectCfg: &declcfg.DeclarativeConfig{
+				Packages: []declcfg.Package{
+					{
+						Schema:         "olm.package",
+						Name:           "foo",
+						DefaultChannel: "beta",
+					},
+				},
+				Bundles: []declcfg.Bundle{
+					{
+						Schema:  "olm.bundle",
+						Name:    "foo.v0.1.0",
+						Package: "foo",
+						Image:   "test.registry/foo-operator/foo-bundle:v0.1.0",
+						Properties: []property.Property{
+							property.MustBuildChannel("beta", ""),
+							property.MustBuildGVK("test.foo", "v1", "Foo"),
+							property.MustBuildGVKRequired("test.bar", "v1alpha1", "Bar"),
+							property.MustBuildPackage("foo", "0.1.0"),
+							property.MustBuildPackageRequired("bar", "v0.1.0"),
+							property.MustBuildSkipRange("<0.1.0"),
+							property.MustBuildBundleObjectData(foov1csv),
+							property.MustBuildBundleObjectData(foov1crd),
+						},
+						RelatedImages: []declcfg.RelatedImage{
+							{
+								Name:  "operator",
+								Image: "test.registry/foo-operator/foo:v0.1.0",
+							},
+						},
+						CsvJSON: string(foov1csv),
+						Objects: []string{string(foov1csv), string(foov1crd)},
+					},
+					{
+						Schema:  "olm.bundle",
+						Name:    "foo.v0.2.0",
+						Package: "foo",
+						Image:   "test.registry/foo-operator/foo-bundle:v0.2.0",
+						Properties: []property.Property{
+							property.MustBuildChannel("beta", "foo.v0.1.0"),
+							property.MustBuildGVK("test.foo", "v1", "Foo"),
+							property.MustBuildGVKRequired("test.bar", "v1alpha1", "Bar"),
+							property.MustBuildPackage("foo", "0.2.0"),
+							property.MustBuildPackageRequired("bar", "v0.1.0"),
+							property.MustBuildSkipRange("<0.2.0"),
+							property.MustBuildSkips("foo.v0.1.1"),
+							property.MustBuildSkips("foo.v0.1.2"),
+							property.MustBuildBundleObjectData(foov2csv),
+							property.MustBuildBundleObjectData(foov2crd),
+						},
+						RelatedImages: []declcfg.RelatedImage{
+							{
+								Name:  "operator",
+								Image: "test.registry/foo-operator/foo:v0.2.0",
+							},
+						},
+						CsvJSON: string(foov2csv),
+						Objects: []string{string(foov2csv), string(foov2crd)},
+					},
+				},
+			},
+			assertion: require.NoError,
+		},
+		{
 			name: "Success/DeclcfgIndexImage",
 			render: action.Render{
 				Refs:     []string{"test.registry/foo-operator/foo-index-declcfg:v0.2.0"},

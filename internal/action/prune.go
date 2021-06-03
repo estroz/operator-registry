@@ -71,7 +71,6 @@ func (p PruneRegistry) PruneFromRegistry(req registry.PruneFromRegistryRequest) 
 		return fmt.Errorf("writer must be set")
 	}
 
-	// TODO: Render does not recognize bare db files yet so this does not work.
 	p.Refs = []string{req.InputDatabase}
 	p.Permissive = req.Permissive
 	if p.Logger == nil {
