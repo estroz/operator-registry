@@ -21,8 +21,9 @@ const (
 )
 
 type diff struct {
-	oldRefs []string
-	newRefs []string
+	oldRefs  []string
+	newRefs  []string
+	withDeps bool
 
 	caFile   string
 	pullTool string
@@ -55,6 +56,7 @@ func NewCmd() *cobra.Command {
 
 	rootCmd.Flags().StringSliceVar(&a.oldRefs, "old", nil, "old index images or declarative config dirs")
 	rootCmd.Flags().StringSliceVar(&a.newRefs, "new", nil, "new index images or declarative config dirs, containing packages/channels/bundles not in old")
+	rootCmd.Flags().BoolVar(&a.withDeps, "deps", true, "include all new dependencies in the diff")
 
 	rootCmd.Flags().StringVarP(&a.caFile, "ca-file", "", "", "the root Certificates to use with this command")
 	rootCmd.Flags().BoolVar(&a.skipTLS, "skip-tls", false, "disable TLS verification")
@@ -85,6 +87,7 @@ func (a *diff) addFunc(cmd *cobra.Command, args []string) error {
 		Registry: reg,
 		OldRefs:  a.oldRefs,
 		NewRefs:  a.newRefs,
+		WithDeps: a.withDeps,
 		Logger:   a.logger,
 	}
 	cfg, err := diff.Run(ctx)

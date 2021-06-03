@@ -4,9 +4,10 @@ import (
 	"sort"
 	"testing"
 
-	"github.com/operator-framework/operator-registry/internal/model"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/operator-framework/operator-registry/internal/model"
 )
 
 func TestDiffChannelsFrom(t *testing.T) {
@@ -69,7 +70,7 @@ func TestDiffChannelsFrom(t *testing.T) {
 			for _, b := range s.oldBundles {
 				oldCh.Bundles[b.Name] = b
 			}
-			output, err := diffChannelsFrom(newCh, oldCh, s.start)
+			output, err := diffChannelsFromNode(newCh, oldCh, s.start)
 			require.NoError(t, err)
 			sort.Slice(output, func(i, j int) bool {
 				return output[i].Name < output[j].Name
@@ -117,7 +118,7 @@ func TestDiffFromOldChannelHeads(t *testing.T) {
 		newBundle.Name:   newBundle,
 	}
 
-	diff, err := DiffFromOldChannelHeads(oldModel, newModel)
+	diff, err := DiffFromOldChannelHeads(oldModel, newModel, false)
 	assert.NoError(t, err)
 	assert.Contains(t, diff, oldPkg.Name)
 	assert.Len(t, diff, 1)

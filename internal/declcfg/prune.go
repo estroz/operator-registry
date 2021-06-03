@@ -29,6 +29,8 @@ func PruneKeep(idx *PackageIndex, pruneCfg pruneConfig, permissive, heads bool) 
 	pkgNames := idx.GetPackageNames()
 	pkgNameSet := sets.NewString(pkgNames...)
 	prunedModel = model.Model{}
+
+	// Add all channel heads from the full catalog to the model.
 	if heads {
 		for _, pkgName := range pkgNames {
 			pkg, err := idx.LoadPackageModel(pkgName)
@@ -48,6 +50,9 @@ func PruneKeep(idx *PackageIndex, pruneCfg pruneConfig, permissive, heads bool) 
 			}
 		}
 	}
+
+	// Add all packages, channels, and bundles (package versions) in pruneCfg
+	// from the full catalog to the model.
 	for pkgName, pruneChannels := range pruneCfg {
 		if !pkgNameSet.Has(pkgName) {
 			if !permissive {
@@ -104,8 +109,7 @@ func PruneKeep(idx *PackageIndex, pruneCfg pruneConfig, permissive, heads bool) 
 		}
 	}
 
-	// TODO: clear replaces on truncated channels.
-
+	// Find all dependencies in the pruned model.
 	reqGVKs := map[property.GVK]struct{}{}
 	reqPkgs := map[string][]semver.Range{}
 	for _, pkg := range prunedModel {
@@ -135,11 +139,13 @@ func PruneKeep(idx *PackageIndex, pruneCfg pruneConfig, permissive, heads bool) 
 		}
 	}
 
+	// Add dependencies from the full catalog.
 	for _, pkgName := range pkgNames {
 		pkg, err := idx.LoadPackageModel(pkgName)
 		if err != nil {
 			return nil, err
 		}
+		// TODO: might need to hydrate between these bundles so they can be upgraded between.
 		for _, b := range getProvidingBundles(pkg, reqGVKs, reqPkgs) {
 			ppkg, hasPkg := prunedModel[b.Package.Name]
 			if !hasPkg {
@@ -151,8 +157,21 @@ func PruneKeep(idx *PackageIndex, pruneCfg pruneConfig, permissive, heads bool) 
 				pch = copyChannelEmptyBundles(b.Channel, ppkg)
 				ppkg.Channels[pch.Name] = pch
 			}
-			cb := copyBundle(b, pch, ppkg)
-			prunedModel.AddBundle(*cb)
+			if _, hasBundle := pch.Bundles[b.Name]; !hasBundle {
+				cb := copyBundle(b, pch, ppkg)
+				prunedModel.AddBundle(*cb)
+			}
+		}
+	}
+
+	// Remove unavailable replaces.
+	for _, pkg := range prunedModel {
+		for _, ch := range pkg.Channels {
+			for _, b := range ch.Bundles {
+				if _, hasReplaces := ch.Bundles[b.Replaces]; !hasReplaces {
+					b.Replaces = ""
+				}
+			}
 		}
 	}
 
@@ -167,6 +186,28 @@ func PruneKeep(idx *PackageIndex, pruneCfg pruneConfig, permissive, heads bool) 
 	}
 
 	return prunedModel, result.ErrorOrNil()
+}
+
+func gvkSetToSlice(gvkSet map[property.GVK]struct{}) property.GVKs {
+	gvks := make(property.GVKs, len(gvkSet))
+	i := 0
+	for gvk := range gvkSet {
+		gvks[i] = gvk
+		i++
+	}
+	sort.Sort(gvks)
+	return gvks
+}
+
+func pkgSetToSlice(pkgSet map[string][]semver.Range) []string {
+	pkgs := make([]string, len(pkgSet))
+	i := 0
+	for pkg := range pkgSet {
+		pkgs[i] = pkg
+		i++
+	}
+	sort.Strings(pkgs)
+	return pkgs
 }
 
 func getProvidingBundles(pkg *model.Package, reqGVKs map[property.GVK]struct{}, reqPkgs map[string][]semver.Range) (providingBundles []*model.Bundle) {
@@ -221,26 +262,4 @@ func getProvidingBundles(pkg *model.Package, reqGVKs map[property.GVK]struct{}, 
 	}
 
 	return providingBundles
-}
-
-func gvkSetToSlice(gvkSet map[property.GVK]struct{}) property.GVKs {
-	gvks := make(property.GVKs, len(gvkSet))
-	i := 0
-	for gvk := range gvkSet {
-		gvks[i] = gvk
-		i++
-	}
-	sort.Sort(gvks)
-	return gvks
-}
-
-func pkgSetToSlice(pkgSet map[string][]semver.Range) []string {
-	pkgs := make([]string, len(pkgSet))
-	i := 0
-	for pkg := range pkgSet {
-		pkgs[i] = pkg
-		i++
-	}
-	sort.Strings(pkgs)
-	return pkgs
 }

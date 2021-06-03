@@ -16,7 +16,7 @@ type Diff struct {
 	OldRefs []string
 	NewRefs []string
 
-	WithHeads  bool
+	WithDeps   bool
 	Permissive bool
 
 	Logger *logrus.Entry
@@ -39,7 +39,7 @@ func (a Diff) Run(ctx context.Context) (*declcfg.DeclarativeConfig, error) {
 		return nil, fmt.Errorf("error rendering new refs: %v", err)
 	}
 
-	diffModel, err := runModel(*oldCfg, *newCfg)
+	diffModel, err := runModel(*oldCfg, *newCfg, a.WithDeps)
 	if err != nil {
 		return nil, err
 	}
@@ -58,7 +58,7 @@ func (p Diff) validate() error {
 	return nil
 }
 
-func runModel(oldCfg, newCfg declcfg.DeclarativeConfig) (model.Model, error) {
+func runModel(oldCfg, newCfg declcfg.DeclarativeConfig, withDeps bool) (model.Model, error) {
 	oldModel, err := declcfg.ConvertToModel(oldCfg)
 	if err != nil {
 		return nil, fmt.Errorf("error converting old cfg to model: %v", err)
@@ -68,7 +68,7 @@ func runModel(oldCfg, newCfg declcfg.DeclarativeConfig) (model.Model, error) {
 		return nil, fmt.Errorf("error converting new cfg to model: %v", err)
 	}
 
-	diff, err := declcfg.DiffFromOldChannelHeads(oldModel, newModel)
+	diff, err := declcfg.DiffFromOldChannelHeads(oldModel, newModel, withDeps)
 	if err != nil {
 		return nil, fmt.Errorf("error generating diff: %v", err)
 	}
