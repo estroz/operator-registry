@@ -435,6 +435,8 @@ github.com/russross/blackfriday
 # github.com/sirupsen/logrus v1.6.0
 ## explicit
 github.com/sirupsen/logrus
+# github.com/spf13/afero v1.6.0
+## explicit
 # github.com/spf13/cobra v1.1.1
 ## explicit
 github.com/spf13/cobra

@@ -55,9 +55,9 @@ func TestNormalize(t *testing.T) {
 	})
 
 	t.Run("Success/RemoveSpaces", func(t *testing.T) {
-		withWhitespace := json.RawMessage(`  {  
-  "foo": "bar"   
-  
+		withWhitespace := json.RawMessage(`  {
+  "foo": "bar"
+
   }  `)
 		expected := json.RawMessage(`{"foo":"bar"}`)
 		b.Properties = []property.Property{{Value: withWhitespace}}

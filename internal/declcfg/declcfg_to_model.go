@@ -1,7 +1,10 @@
 package declcfg
 
 import (
+	"encoding/json"
 	"fmt"
+
+	"github.com/blang/semver"
 
 	"github.com/operator-framework/operator-registry/internal/model"
 	"github.com/operator-framework/operator-registry/internal/property"
@@ -66,6 +69,20 @@ func ConvertToModel(cfg DeclarativeConfig) (model.Model, error) {
 				}
 				mpkg.Channels[bundleChannel.Name] = pkgChannel
 			}
+			var ver semver.Version
+			for _, pkgProp := range props.Packages {
+				if pkgProp.PackageName == mpkg.Name && pkgProp.Version != "" {
+					if ver, err = semver.Parse(pkgProp.Version); err != nil {
+						return nil, fmt.Errorf("error parsing bundle version: %v", err)
+					}
+					break
+				}
+			}
+			if ver.Equals(semver.Version{}) {
+				if ver, err = getCSVVersion([]byte(b.CsvJSON)); err != nil {
+					return nil, fmt.Errorf("error reading bundle version from CSV: %v", err)
+				}
+			}
 			pkgChannel.Bundles[b.Name] = &model.Bundle{
 				Package:       mpkg,
 				Channel:       pkgChannel,
@@ -74,9 +91,11 @@ func ConvertToModel(cfg DeclarativeConfig) (model.Model, error) {
 				Replaces:      bundleChannel.Replaces,
 				Skips:         skipsToStrings(props.Skips),
 				Properties:    b.Properties,
+				PropertiesP:   props,
 				RelatedImages: relatedImagesToModelRelatedImages(b.RelatedImages),
 				CsvJSON:       b.CsvJSON,
 				Objects:       b.Objects,
+				Version:       ver,
 			}
 		}
 	}
@@ -118,4 +137,14 @@ func relatedImagesToModelRelatedImages(in []RelatedImage) []model.RelatedImage {
 		})
 	}
 	return out
+}
+
+func getCSVVersion(csvJSON []byte) (semver.Version, error) {
+	var tmp struct {
+		Spec struct {
+			Version semver.Version `json:"version"`
+		} `json:"spec"`
+	}
+	err := json.Unmarshal(csvJSON, &tmp)
+	return tmp.Spec.Version, err
 }
