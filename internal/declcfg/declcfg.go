@@ -35,8 +35,8 @@ type Bundle struct {
 	Name          string              `json:"name"`
 	Package       string              `json:"package"`
 	Image         string              `json:"image"`
-	Properties    []property.Property `json:"properties,omitempty"`
-	RelatedImages []RelatedImage      `json:"relatedImages,omitempty"`
+	Properties    []property.Property `json:"properties,omitempty" hash:"set"`
+	RelatedImages []RelatedImage      `json:"relatedImages,omitempty" hash:"set"`
 
 	// These fields are present so that we can continue serving
 	// the GRPC API the way packageserver expects us to in a
