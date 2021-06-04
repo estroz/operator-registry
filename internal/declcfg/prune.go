@@ -21,11 +21,57 @@ func (e missingPruneKeyError) Error() string {
 	return fmt.Sprintf("%s prune key %q not found in config", e.keyType, e.key)
 }
 
-type pruneConfig map[string]map[string]map[string]struct{}
+type PruneConfig struct {
+	Packages []Pkg `json:"packages"`
+}
 
-func rangeAny(semver.Version) bool { return true }
+type Pkg struct {
+	Name     string    `json:"name"`
+	Channels []Channel `json:"channels"`
+	Bundles  []string  `json:"bundles"`
+}
 
-func PruneKeep(idx *PackageIndex, pruneCfg pruneConfig, permissive, heads bool) (prunedModel model.Model, err error) {
+type Channel struct {
+	Name    string   `json:"name"`
+	Head    string   `json:"head"`
+	Bundles []string `json:"bundles"`
+}
+
+func ConfigToPruneConfig(dcfg *DeclarativeConfig) (pcfg PruneConfig, err error) {
+	m, err := ConvertToModel(*dcfg)
+	if err != nil {
+		return pcfg, err
+	}
+	for _, pkg := range m {
+		ppkg := Pkg{Name: pkg.Name}
+		for _, ch := range pkg.Channels {
+			head, err := ch.Head()
+			if err != nil {
+				return pcfg, err
+			}
+			pch := Channel{Name: ch.Name, Head: head.Name}
+			for bName := range ch.Bundles {
+				pch.Bundles = append(pch.Bundles, bName)
+			}
+			ppkg.Channels = append(ppkg.Channels, pch)
+		}
+		pcfg.Packages = append(pcfg.Packages, ppkg)
+	}
+	return pcfg, nil
+}
+
+func PruneKeep(idx *PackageIndex, pruneConfig PruneConfig, permissive, heads bool) (prunedModel model.Model, err error) {
+	pruneCfg := make(map[string]map[string]map[string]struct{}, len(pruneConfig.Packages))
+	for _, pkg := range pruneConfig.Packages {
+		pruneCfg[pkg.Name] = make(map[string]map[string]struct{}, len(pkg.Channels))
+		for _, ch := range pkg.Channels {
+			pruneCfg[pkg.Name][ch.Name] = make(map[string]struct{}, len(ch.Bundles))
+			for _, b := range ch.Bundles {
+				pruneCfg[pkg.Name][ch.Name][b] = struct{}{}
+			}
+		}
+	}
+
 	pkgNames := idx.GetPackageNames()
 	pkgNameSet := sets.NewString(pkgNames...)
 	prunedModel = model.Model{}
@@ -109,10 +155,233 @@ func PruneKeep(idx *PackageIndex, pruneCfg pruneConfig, permissive, heads bool) 
 		}
 	}
 
+	if err := addDependencies(idx, prunedModel); err != nil {
+		return nil, err
+	}
+
+	fixReplaces(prunedModel)
+
+	return prunedModel, nil
+}
+
+func PruneRemove(idx *PackageIndex, pruneConfig PruneConfig, permissive, heads, withDeps bool) (diff model.Model, err error) {
+	pruneCfg := make(map[string]map[string]map[string]int, len(pruneConfig.Packages))
+	pkgLookup := make(map[string]Pkg, len(pruneConfig.Packages))
+	for _, pkg := range pruneConfig.Packages {
+		pruneCfg[pkg.Name] = make(map[string]map[string]int, len(pkg.Channels))
+		pkgLookup[pkg.Name] = pkg
+		for ci, ch := range pkg.Channels {
+			pruneCfg[pkg.Name][ch.Name] = make(map[string]int, len(ch.Bundles))
+			for _, b := range ch.Bundles {
+				pruneCfg[pkg.Name][ch.Name][b] = ci
+			}
+		}
+	}
+
+	pkgNames := idx.GetPackageNames()
+	diff = model.Model{}
+
+	for _, pkgName := range pkgNames {
+		newPkg, err := idx.LoadPackageModel(pkgName)
+		if err != nil {
+			return nil, err
+		}
+		pruneCfgChannels, hasPkg := pruneCfg[newPkg.Name]
+		if hasPkg || heads {
+			diffPkg := copyPackageEmptyChannels(newPkg)
+			diff[diffPkg.Name] = diffPkg
+		}
+		if !hasPkg || len(pruneCfgChannels) == 0 {
+			if heads {
+				diffPkg := diff[newPkg.Name]
+				for _, newCh := range newPkg.Channels {
+					diffCh := copyChannelEmptyBundles(newCh, diffPkg)
+					diffPkg.Channels[diffCh.Name] = diffCh
+					head, err := newCh.Head()
+					if err != nil {
+						return nil, err
+					}
+					diff.AddBundle(*copyBundle(head, diffCh, diffPkg))
+				}
+			}
+			continue
+		}
+		diffPkg := diff[newPkg.Name]
+		for chName, pruneCfgBundles := range pruneCfgChannels {
+			newCh, hasCh := newPkg.Channels[chName]
+			if hasCh || heads {
+				diffCh := copyChannelEmptyBundles(newCh, diffPkg)
+				diffPkg.Channels[diffCh.Name] = diffCh
+			}
+			if !hasCh || len(pruneCfgBundles) == 0 {
+				if heads {
+					diffCh := diffPkg.Channels[newCh.Name]
+					head, err := newCh.Head()
+					if err != nil {
+						return nil, err
+					}
+					diff.AddBundle(*copyBundle(head, diffCh, diffPkg))
+				}
+				continue
+			}
+			allReplaces := map[string][]*model.Bundle{}
+			for _, b := range newCh.Bundles {
+				if b.Replaces == "" {
+					continue
+				}
+				allReplaces[b.Replaces] = append(allReplaces[b.Replaces], b)
+			}
+			diffCh := diffPkg.Channels[newCh.Name]
+			for bName, chIdx := range pruneCfgBundles {
+				if pkg, hasLPkg := pkgLookup[diffPkg.Name]; hasLPkg {
+					if ch := pkg.Channels[chIdx]; ch.Head == "" {
+						newBundle := newCh.Bundles[bName]
+						diff.AddBundle(*copyBundle(newBundle, diffCh, diffPkg))
+					} else {
+						oldHead, hasHead := newCh.Bundles[ch.Head]
+						if !hasHead {
+							// TODO: request full package to find intersection.
+							continue
+						}
+						newHead, err := newCh.Head()
+						if err != nil {
+							return nil, err
+						}
+						bundleDiff, err := diffChannelBetweenNodes(newCh, oldHead, newHead, allReplaces)
+						if err != nil {
+							return nil, err
+						}
+						for _, newBundle := range bundleDiff {
+							diff.AddBundle(*copyBundle(newBundle, diffCh, diffPkg))
+						}
+					}
+				}
+			}
+		}
+
+		diffPkg.DefaultChannel = diffPkg.Channels[newPkg.DefaultChannel.Name]
+	}
+
+	if withDeps {
+		if err := addDependencies(idx, diff); err != nil {
+			return nil, err
+		}
+	}
+
+	fixReplaces(diff)
+
+	return diff, nil
+}
+
+func copyPackageEmptyChannels(in *model.Package) *model.Package {
+	cp := &model.Package{
+		Name:        in.Name,
+		Description: in.Description,
+		Channels:    map[string]*model.Channel{},
+	}
+	if in.Icon != nil {
+		cp.Icon = &model.Icon{
+			Data:      make([]byte, len(in.Icon.Data)),
+			MediaType: in.Icon.MediaType,
+		}
+		copy(cp.Icon.Data, in.Icon.Data)
+	}
+	return cp
+}
+
+func copyChannelEmptyBundles(in *model.Channel, pkg *model.Package) *model.Channel {
+	cp := &model.Channel{
+		Name:    in.Name,
+		Package: pkg,
+		Bundles: map[string]*model.Bundle{},
+	}
+	return cp
+}
+
+func copyBundle(in *model.Bundle, ch *model.Channel, pkg *model.Package) *model.Bundle {
+	cp := &model.Bundle{
+		Name:          in.Name,
+		Channel:       ch,
+		Package:       pkg,
+		Image:         in.Image,
+		Replaces:      in.Replaces,
+		Skips:         make([]string, len(in.Skips)),
+		Properties:    make([]property.Property, len(in.Properties)),
+		RelatedImages: make([]model.RelatedImage, len(in.RelatedImages)),
+		Version:       semver.MustParse(in.Version.String()),
+	}
+	copy(cp.Skips, in.Skips)
+	copy(cp.Properties, in.Properties)
+	cp.PropertiesP, _ = property.Parse(in.Properties)
+	copy(cp.RelatedImages, in.RelatedImages)
+	return cp
+}
+
+func diffChannelBetweenNodes(ch *model.Channel, start, end *model.Bundle, allReplaces map[string][]*model.Bundle) (replacingBundles []*model.Bundle, err error) {
+	// There is no diff if start is end.
+	if start.Name == end.Name {
+		return nil, nil
+	}
+
+	// Construct the old replaces chain from start.
+	oldChain := map[string]*model.Bundle{start.Name: nil}
+	for next := start; next != nil && next.Replaces != ""; next = ch.Bundles[next.Replaces] {
+		oldChain[next.Replaces] = next
+	}
+
+	// Trace the new replaces chain from end until the old chain intersects.
+	var intersection string
+	for next := end; next != nil && next.Replaces != ""; next = ch.Bundles[next.Replaces] {
+		if _, inChain := oldChain[next.Replaces]; inChain {
+			intersection = next.Replaces
+			break
+		}
+	}
+
+	// TODO: handle this better somehow, since start and end are not in
+	// the same replaces chain and therefore cannot be upgraded between.
+	if intersection == "" {
+		for _, b := range ch.Bundles {
+			replacingBundles = append(replacingBundles, b)
+		}
+		return replacingBundles, nil
+	}
+
+	// Find all bundles that replace the intersection via BFS,
+	// i.e. the set of bundles that fill the update graph between start and end.
+	replacesIntersection := allReplaces[intersection]
+	replacesSet := map[string]*model.Bundle{}
+	for _, b := range replacesIntersection {
+		currName := ""
+		for next := []*model.Bundle{b}; len(next) > 0; next = next[1:] {
+			currName = next[0].Name
+			if _, seen := replacesSet[currName]; !seen {
+				replacers := allReplaces[currName]
+				next = append(next, replacers...)
+				replacesSet[currName] = ch.Bundles[currName]
+			}
+		}
+	}
+
+	// Remove every bundle between start and intersection,
+	// which must already exist in the destination catalog
+	for next := start; next != nil && next.Replaces != intersection; next = ch.Bundles[next.Replaces] {
+		delete(replacesSet, next.Name)
+	}
+
+	for _, b := range replacesSet {
+		replacingBundles = append(replacingBundles, b)
+	}
+	return replacingBundles, nil
+}
+
+func rangeAny(semver.Version) bool { return true }
+
+func addDependencies(idx *PackageIndex, m model.Model) (err error) {
 	// Find all dependencies in the pruned model.
 	reqGVKs := map[property.GVK]struct{}{}
 	reqPkgs := map[string][]semver.Range{}
-	for _, pkg := range prunedModel {
+	for _, pkg := range m {
 		for _, ch := range pkg.Channels {
 			for _, b := range ch.Bundles {
 				for _, gvkReq := range b.PropertiesP.GVKsRequired {
@@ -128,7 +397,7 @@ func PruneKeep(idx *PackageIndex, pruneCfg pruneConfig, permissive, heads bool) 
 					if pkgReq.VersionRange != "" {
 						if inRange, err = semver.ParseRange(pkgReq.VersionRange); err != nil {
 							// Should never happen since model has been validated.
-							return nil, err
+							return err
 						}
 					} else {
 						inRange = rangeAny
@@ -140,17 +409,17 @@ func PruneKeep(idx *PackageIndex, pruneCfg pruneConfig, permissive, heads bool) 
 	}
 
 	// Add dependencies from the full catalog.
-	for _, pkgName := range pkgNames {
+	for _, pkgName := range idx.GetPackageNames() {
 		pkg, err := idx.LoadPackageModel(pkgName)
 		if err != nil {
-			return nil, err
+			return err
 		}
 		// TODO: might need to hydrate between these bundles so they can be upgraded between.
 		for _, b := range getProvidingBundles(pkg, reqGVKs, reqPkgs) {
-			ppkg, hasPkg := prunedModel[b.Package.Name]
+			ppkg, hasPkg := m[b.Package.Name]
 			if !hasPkg {
 				ppkg = copyPackageEmptyChannels(b.Package)
-				prunedModel[ppkg.Name] = ppkg
+				m[ppkg.Name] = ppkg
 			}
 			pch, hasCh := ppkg.Channels[b.Channel.Name]
 			if !hasCh {
@@ -159,18 +428,7 @@ func PruneKeep(idx *PackageIndex, pruneCfg pruneConfig, permissive, heads bool) 
 			}
 			if _, hasBundle := pch.Bundles[b.Name]; !hasBundle {
 				cb := copyBundle(b, pch, ppkg)
-				prunedModel.AddBundle(*cb)
-			}
-		}
-	}
-
-	// Remove unavailable replaces.
-	for _, pkg := range prunedModel {
-		for _, ch := range pkg.Channels {
-			for _, b := range ch.Bundles {
-				if _, hasReplaces := ch.Bundles[b.Replaces]; !hasReplaces {
-					b.Replaces = ""
-				}
+				m.AddBundle(*cb)
 			}
 		}
 	}
@@ -185,7 +443,7 @@ func PruneKeep(idx *PackageIndex, pruneCfg pruneConfig, permissive, heads bool) 
 		result = multierror.Append(result, fmt.Errorf("packages not provided: %+q", pkgSetToSlice(reqPkgs)))
 	}
 
-	return prunedModel, result.ErrorOrNil()
+	return result.ErrorOrNil()
 }
 
 func gvkSetToSlice(gvkSet map[property.GVK]struct{}) property.GVKs {
@@ -262,4 +520,17 @@ func getProvidingBundles(pkg *model.Package, reqGVKs map[property.GVK]struct{}, 
 	}
 
 	return providingBundles
+}
+
+func fixReplaces(m model.Model) {
+	// Remove unavailable replaces.
+	for _, pkg := range m {
+		for _, ch := range pkg.Channels {
+			for _, b := range ch.Bundles {
+				if _, hasReplaces := ch.Bundles[b.Replaces]; !hasReplaces {
+					b.Replaces = ""
+				}
+			}
+		}
+	}
 }

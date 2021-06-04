@@ -18,24 +18,12 @@ type Prune struct {
 	Refs     []string
 	Registry image.Registry
 
-	Config     PruneConfig
+	Config     declcfg.PruneConfig
 	Keep       bool
 	KeepHeads  bool
 	Permissive bool
 
 	Logger *logrus.Entry
-}
-
-type PruneConfig []Package
-
-type Package struct {
-	Name     string
-	Channels []Channel
-}
-
-type Channel struct {
-	Name    string
-	Bundles []string
 }
 
 func (p Prune) Run(ctx context.Context) (*declcfg.DeclarativeConfig, error) {
@@ -97,18 +85,8 @@ func (p Prune) validate() error {
 }
 
 func (p Prune) runIndex(idx *declcfg.PackageIndex) (toModel model.Model, err error) {
-	pruneCfg := make(map[string]map[string]map[string]struct{}, len(p.Config))
-	for _, pkg := range p.Config {
-		pruneCfg[pkg.Name] = make(map[string]map[string]struct{}, len(pkg.Channels))
-		for _, ch := range pkg.Channels {
-			pruneCfg[pkg.Name][ch.Name] = make(map[string]struct{}, len(ch.Bundles))
-			for _, b := range ch.Bundles {
-				pruneCfg[pkg.Name][ch.Name][b] = struct{}{}
-			}
-		}
-	}
 
-	toModel, err = declcfg.PruneKeep(idx, pruneCfg, p.Permissive, p.KeepHeads)
+	toModel, err = declcfg.PruneKeep(idx, p.Config, p.Permissive, p.KeepHeads)
 	if err != nil {
 		return nil, err
 	}

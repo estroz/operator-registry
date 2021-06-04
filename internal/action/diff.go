@@ -3,11 +3,13 @@ package action
 import (
 	"context"
 	"fmt"
+	"os"
+
+	"github.com/sirupsen/logrus"
+	"sigs.k8s.io/yaml"
 
 	"github.com/operator-framework/operator-registry/internal/declcfg"
-	"github.com/operator-framework/operator-registry/internal/model"
 	"github.com/operator-framework/operator-registry/pkg/image"
-	"github.com/sirupsen/logrus"
 )
 
 type Diff struct {
@@ -17,6 +19,7 @@ type Diff struct {
 	NewRefs []string
 
 	WithDeps   bool
+	WithHeads  bool
 	Permissive bool
 
 	Logger *logrus.Entry
@@ -27,21 +30,46 @@ func (a Diff) Run(ctx context.Context) (*declcfg.DeclarativeConfig, error) {
 		return nil, err
 	}
 
-	oldRender := Render{Refs: a.OldRefs, Registry: a.Registry}
-	oldCfg, err := oldRender.Run(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("error rendering old refs: %v", err)
-	}
-
 	newRender := Render{Refs: a.NewRefs, Registry: a.Registry}
-	newCfg, err := newRender.Run(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("error rendering new refs: %v", err)
+	idx := declcfg.NewPackageIndex()
+	if err := newRender.index(ctx, idx); err != nil {
+		return nil, err
 	}
 
-	diffModel, err := runModel(*oldCfg, *newCfg, a.WithDeps)
+	oldRender := Render{Registry: a.Registry}
+	var pruneCfgs []declcfg.PruneConfig
+	for _, ref := range a.OldRefs {
+		if info, err := os.Stat(ref); err != nil || info.IsDir() {
+			oldRender.Refs = append(oldRender.Refs, ref)
+			continue
+		}
+		b, err := os.ReadFile(ref)
+		if err != nil {
+			return nil, err
+		}
+		var pruneCfg declcfg.PruneConfig
+		if err := yaml.UnmarshalStrict(b, &pruneCfg); err != nil {
+			oldRender.Refs = append(oldRender.Refs, ref)
+			continue
+		}
+		pruneCfgs = append(pruneCfgs, pruneCfg)
+	}
+	if len(oldRender.Refs) != 0 {
+		oldCfg, err := oldRender.Run(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("error rendering old refs: %v", err)
+		}
+		pruneCfg, err := declcfg.ConfigToPruneConfig(oldCfg)
+		if err != nil {
+			return nil, err
+		}
+		pruneCfgs = append(pruneCfgs, pruneCfg)
+	}
+
+	pruneCfg := combinePruneConfigs(pruneCfgs)
+	diffModel, err := declcfg.PruneRemove(idx, pruneCfg, a.Permissive, a.WithHeads, a.WithDeps)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("error generating diff: %v", err)
 	}
 
 	diffCfg := declcfg.ConvertFromModel(diffModel)
@@ -58,20 +86,10 @@ func (p Diff) validate() error {
 	return nil
 }
 
-func runModel(oldCfg, newCfg declcfg.DeclarativeConfig, withDeps bool) (model.Model, error) {
-	oldModel, err := declcfg.ConvertToModel(oldCfg)
-	if err != nil {
-		return nil, fmt.Errorf("error converting old cfg to model: %v", err)
+// TODO: validate all prune configs, since they can contain duplicates.
+func combinePruneConfigs(cfgs []declcfg.PruneConfig) (finalCfg declcfg.PruneConfig) {
+	for _, cfg := range cfgs {
+		finalCfg.Packages = append(finalCfg.Packages, cfg.Packages...)
 	}
-	newModel, err := declcfg.ConvertToModel(newCfg)
-	if err != nil {
-		return nil, fmt.Errorf("error converting new cfg to model: %v", err)
-	}
-
-	diff, err := declcfg.DiffFromOldChannelHeads(oldModel, newModel, withDeps)
-	if err != nil {
-		return nil, fmt.Errorf("error generating diff: %v", err)
-	}
-
-	return diff, nil
+	return finalCfg
 }

@@ -4,6 +4,7 @@ import (
 	"sort"
 	"testing"
 
+	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -14,8 +15,7 @@ func TestDiffChannelsFrom(t *testing.T) {
 	type spec struct {
 		name       string
 		newBundles []*model.Bundle
-		oldBundles []*model.Bundle
-		start      *model.Bundle
+		start, end *model.Bundle
 		expDiff    []*model.Bundle
 	}
 
@@ -34,44 +34,45 @@ func TestDiffChannelsFrom(t *testing.T) {
 		{
 			name:       "Valid/v0.0.1",
 			newBundles: bundles1,
-			oldBundles: bundles1[:1],
-			start:      newReplacingBundle("anakin.v0.0.1", ""),
+			start:      bundles1[0],
+			end:        bundles1[len(bundles1)-1],
 			expDiff:    bundles1[1:],
 		},
 		{
 			name:       "Valid/v0.0.2",
 			newBundles: bundles1,
-			oldBundles: bundles1[:2],
-			start:      newReplacingBundle("anakin.v0.0.2", "anakin.v0.0.1"),
+			start:      bundles1[1],
+			end:        bundles1[len(bundles1)-1],
 			expDiff:    bundles1[2:],
 		},
 		{
 			name:       "Valid/v0.1.0",
 			newBundles: bundles1,
-			oldBundles: bundles1[:4],
-			start:      newReplacingBundle("anakin.v0.1.0", "anakin.v0.0.3"),
+			start:      bundles1[3],
+			end:        bundles1[len(bundles1)-1],
 			expDiff:    bundles1[4:],
 		},
 		{
 			name:       "Valid/v0.3.1",
 			newBundles: bundles1,
-			oldBundles: bundles1,
-			start:      newReplacingBundle("anakin.v0.3.1", "anakin.v0.3.0"),
+			start:      bundles1[len(bundles1)-1],
+			end:        bundles1[len(bundles1)-1],
 			expDiff:    nil,
 		},
 	}
 	for _, s := range specs {
 		t.Run(s.name, func(t *testing.T) {
 			newCh := &model.Channel{Bundles: make(map[string]*model.Bundle, len(s.newBundles))}
+			allReplaces := map[string][]*model.Bundle{}
 			for _, b := range s.newBundles {
+				b := b
 				newCh.Bundles[b.Name] = b
+				if b.Replaces != "" {
+					allReplaces[b.Replaces] = append(allReplaces[b.Replaces], b)
+				}
 			}
-			oldCh := &model.Channel{Bundles: make(map[string]*model.Bundle, len(s.oldBundles))}
-			for _, b := range s.oldBundles {
-				oldCh.Bundles[b.Name] = b
-			}
-			output, err := diffChannelsFromNode(newCh, oldCh, s.start)
-			require.NoError(t, err)
+			output, err := diffChannelBetweenNodes(newCh, s.start, s.end, allReplaces)
+			assert.NoError(t, err)
 			sort.Slice(output, func(i, j int) bool {
 				return output[i].Name < output[j].Name
 			})
@@ -97,9 +98,8 @@ func collectBundleReplaces(bundles []*model.Bundle) (brs []bundleReplaces) {
 	return
 }
 
-func TestDiffFromOldChannelHeads(t *testing.T) {
+func TestPruneRemove(t *testing.T) {
 	oldPkg := &model.Package{Name: "old"}
-	oldModel := model.Model{oldPkg.Name: oldPkg}
 	oldCh := &model.Channel{Name: "alpha", Package: oldPkg}
 	oldPkg.Channels = map[string]*model.Channel{oldCh.Name: oldCh}
 	oldPkg.DefaultChannel = oldCh
@@ -118,13 +118,35 @@ func TestDiffFromOldChannelHeads(t *testing.T) {
 		newBundle.Name:   newBundle,
 	}
 
-	diff, err := DiffFromOldChannelHeads(oldModel, newModel, false)
-	assert.NoError(t, err)
-	assert.Contains(t, diff, oldPkg.Name)
-	assert.Len(t, diff, 1)
-	assert.Contains(t, diff[oldPkg.Name].Channels, oldCh.Name)
-	assert.Len(t, diff[oldPkg.Name].Channels, 1)
-	assert.Equal(t, diff[oldPkg.Name].DefaultChannel.Name, oldCh.Name)
-	assert.Len(t, diff[oldPkg.Name].Channels[oldCh.Name].Bundles, 1)
-	assert.Contains(t, diff[oldPkg.Name].Channels[oldCh.Name].Bundles, newBundle.Name)
+	pruneConfig := PruneConfig{
+		Packages: []Pkg{
+			{Name: "old", Channels: []Channel{
+				{Name: "alpha", Head: "operator.v0.1.0"}},
+			},
+		},
+	}
+
+	diff, err := PruneRemove(indexerFor(t, newModel), pruneConfig, false, false, false)
+	require.NoError(t, err)
+	require.NotNil(t, diff)
+	require.Contains(t, diff, oldPkg.Name)
+	require.Len(t, diff, 1)
+	require.Contains(t, diff, oldPkg.Name)
+	require.Len(t, diff[oldPkg.Name].Channels, 1)
+	require.Contains(t, diff[oldPkg.Name].Channels, oldCh.Name)
+	require.Equal(t, diff[oldPkg.Name].DefaultChannel.Name, oldCh.Name)
+	require.Len(t, diff[oldPkg.Name].Channels[oldCh.Name].Bundles, 1)
+	require.Contains(t, diff[oldPkg.Name].Channels[oldCh.Name].Bundles, newBundle.Name)
+}
+
+func indexerFor(t *testing.T, ms ...model.Model) *PackageIndex {
+	idx := &PackageIndex{
+		fs:          afero.NewMemMapFs(),
+		pkgEncoders: map[string]encoder{},
+	}
+	for _, m := range ms {
+		cfg := ConvertFromModel(m)
+		require.NoError(t, idx.Add(&cfg))
+	}
+	return idx
 }
