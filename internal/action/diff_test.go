@@ -32,11 +32,14 @@ func TestDiff(t *testing.T) {
 
 	specs := []spec{
 		{
-			name: "Success/Basic",
+			name: "Success/Exact",
 			diff: action.Diff{
 				Registry: registry,
 				OldRefs:  []string{filepath.Join("testdata", "indices", "old-declcfg")},
 				NewRefs:  []string{filepath.Join("testdata", "indices", "latest-declcfg")},
+				Fill:     false,
+				Heads:    true,
+				Deps:     true,
 			},
 			expectedCfg: loadStatic(t, expDeclCfg),
 			assertion:   require.NoError,
@@ -264,7 +267,7 @@ properties:
 - type: olm.package.required
   value:
     packageName: bar
-    versionRange: v0.2.0
+    versionRange: <0.2.0
 - type: olm.skips
   value: foo.v0.3.0
 relatedImages:

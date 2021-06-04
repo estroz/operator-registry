@@ -33,6 +33,11 @@ func (a Diff) Run(ctx context.Context) (*declcfg.DeclarativeConfig, error) {
 
 	newRender := Render{Refs: a.NewRefs, Registry: a.Registry}
 	idx := declcfg.NewPackageIndex()
+	defer func() {
+		if cerr := idx.Cleanup(); cerr != nil {
+			a.Logger.Error(cerr)
+		}
+	}()
 	if err := newRender.index(ctx, idx); err != nil {
 		return nil, err
 	}

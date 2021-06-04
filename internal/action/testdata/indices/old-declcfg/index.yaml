@@ -154,7 +154,7 @@ properties:
 - type: olm.package.required
   value:
     packageName: bar
-    versionRange: v0.1.0
+    versionRange: <0.1.0
 - type: olm.skipRange
   value: <0.1.0
 - type: olm.bundle.object
@@ -193,7 +193,7 @@ properties:
 - type: olm.package.required
   value:
     packageName: bar
-    versionRange: v0.1.0
+    versionRange: <0.1.0
 - type: olm.skipRange
   value: <0.2.0
 - type: olm.skips
@@ -241,7 +241,7 @@ properties:
 - type: olm.package.required
   value:
     packageName: bar
-    versionRange: v0.2.0
+    versionRange: <0.2.0
 - type: olm.bundle.object
   value:
     data: eyJhcGlWZXJzaW9uIjoib3BlcmF0b3JzLmNvcmVvcy5jb20vdjFhbHBoYTEiLCJraW5kIjoiQ2x1c3RlclNlcnZpY2VWZXJzaW9uIiwibWV0YWRhdGEiOnsibmFtZSI6ImZvby52MC4zLjAifSwic3BlYyI6eyJjdXN0b21yZXNvdXJjZWRlZmluaXRpb25zIjp7Im93bmVkIjpbeyJncm91cCI6InRlc3QuZm9vIiwia2luZCI6IkZvbyIsIm5hbWUiOiJmb29zLnRlc3QuZm9vIiwidmVyc2lvbiI6InYxIn0seyJncm91cCI6InRlc3QuZm9vIiwia2luZCI6IkZvbyIsIm5hbWUiOiJmb29zLnRlc3QuZm9vIiwidmVyc2lvbiI6InYyIn1dfSwicmVsYXRlZEltYWdlcyI6W3siaW1hZ2UiOiJ0ZXN0LnJlZ2lzdHJ5L2Zvby1vcGVyYXRvci9mb286djAuMy4wIiwibmFtZSI6Im9wZXJhdG9yIn1dLCJyZXBsYWNlcyI6ImZvby52MC4yLjAiLCJ2ZXJzaW9uIjoiMC4zLjAifX0=
