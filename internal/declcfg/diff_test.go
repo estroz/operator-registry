@@ -118,15 +118,15 @@ func TestPruneRemove(t *testing.T) {
 		newBundle.Name:   newBundle,
 	}
 
-	pruneConfig := PruneConfig{
-		Packages: []Pkg{
-			{Name: "old", Channels: []Channel{
+	pruneConfig := DiffConfig{
+		Packages: []DiffPackage{
+			{Name: "old", Channels: []DiffChannel{
 				{Name: "alpha", Head: "operator.v0.1.0"}},
 			},
 		},
 	}
 
-	diff, err := PruneRemove(indexerFor(t, newModel), pruneConfig, false, false, false)
+	diff, err := diffExact(indexerFor(t, newModel), pruneConfig, false, false, false)
 	require.NoError(t, err)
 	require.NotNil(t, diff)
 	require.Contains(t, diff, oldPkg.Name)

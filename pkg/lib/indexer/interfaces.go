@@ -86,12 +86,12 @@ type IndexPruner interface {
 	PruneFromIndex(PruneFromIndexRequest) error
 }
 
-func NewIndexPruner(containerTool containertools.ContainerTool, logger *logrus.Entry, pruner registry.RegistryPruner) IndexPruner {
+func NewIndexPruner(containerTool containertools.ContainerTool, logger *logrus.Entry) IndexPruner {
 	return ImageIndexer{
 		DockerfileGenerator: containertools.NewDockerfileGenerator(logger),
 		CommandRunner:       containertools.NewCommandRunner(containerTool, logger),
 		LabelReader:         containertools.NewLabelReader(containerTool, logger),
-		RegistryPruner:      pruner,
+		RegistryPruner:      registry.NewRegistryPruner(logger),
 		BuildTool:           containerTool,
 		PullTool:            containerTool,
 		Logger:              logger,

@@ -137,8 +137,7 @@ func buildFromIndexWith(containerTool string) error {
 // TODO(djzager): make this more complete than what should be a simple no-op
 func pruneIndexWith(containerTool string) error {
 	logger := logrus.WithFields(logrus.Fields{"packages": packageName})
-	ct := containertools.NewContainerTool(containerTool, containertools.NoneTool)
-	indexAdder := indexer.NewIndexPruner(ct, logger, lregistry.NewRegistryPruner(logger))
+	indexAdder := indexer.NewIndexPruner(containertools.NewContainerTool(containerTool, containertools.NoneTool), logger)
 
 	request := indexer.PruneFromIndexRequest{
 		Generate:          false,

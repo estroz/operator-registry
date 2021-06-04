@@ -12,44 +12,44 @@ import (
 	"github.com/operator-framework/operator-registry/internal/property"
 )
 
-type missingPruneKeyError struct {
+type missingDiffKeyError struct {
 	keyType string
 	key     string
 }
 
-func (e missingPruneKeyError) Error() string {
-	return fmt.Sprintf("%s prune key %q not found in config", e.keyType, e.key)
+func (e missingDiffKeyError) Error() string {
+	return fmt.Sprintf("%s diff key %q not found in config", e.keyType, e.key)
 }
 
-type PruneConfig struct {
-	Packages []Pkg `json:"packages"`
+type DiffConfig struct {
+	Packages []DiffPackage `json:"packages"`
 }
 
-type Pkg struct {
-	Name     string    `json:"name"`
-	Channels []Channel `json:"channels"`
-	Bundles  []string  `json:"bundles"`
+type DiffPackage struct {
+	Name     string        `json:"name"`
+	Channels []DiffChannel `json:"channels"`
+	Bundles  []string      `json:"bundles"`
 }
 
-type Channel struct {
+type DiffChannel struct {
 	Name    string   `json:"name"`
 	Head    string   `json:"head"`
 	Bundles []string `json:"bundles"`
 }
 
-func ConfigToPruneConfig(dcfg *DeclarativeConfig) (pcfg PruneConfig, err error) {
+func ConvertToDiffConfig(dcfg *DeclarativeConfig) (pcfg DiffConfig, err error) {
 	m, err := ConvertToModel(*dcfg)
 	if err != nil {
 		return pcfg, err
 	}
 	for _, pkg := range m {
-		ppkg := Pkg{Name: pkg.Name}
+		ppkg := DiffPackage{Name: pkg.Name}
 		for _, ch := range pkg.Channels {
 			head, err := ch.Head()
 			if err != nil {
 				return pcfg, err
 			}
-			pch := Channel{Name: ch.Name, Head: head.Name}
+			pch := DiffChannel{Name: ch.Name, Head: head.Name}
 			for bName := range ch.Bundles {
 				pch.Bundles = append(pch.Bundles, bName)
 			}
@@ -60,21 +60,38 @@ func ConfigToPruneConfig(dcfg *DeclarativeConfig) (pcfg PruneConfig, err error) 
 	return pcfg, nil
 }
 
-func PruneKeep(idx *PackageIndex, pruneConfig PruneConfig, permissive, heads bool) (prunedModel model.Model, err error) {
-	pruneCfg := make(map[string]map[string]map[string]struct{}, len(pruneConfig.Packages))
-	for _, pkg := range pruneConfig.Packages {
-		pruneCfg[pkg.Name] = make(map[string]map[string]struct{}, len(pkg.Channels))
+type DiffOptions struct {
+	Heads      bool
+	Deps       bool
+	Permissive bool
+	Fill       bool
+}
+
+func DiffIndex(idx *PackageIndex, diffCfg DiffConfig, opts DiffOptions) (diffdModel model.Model, err error) {
+	if opts.Fill {
+		diffdModel, err = diffFill(idx, diffCfg, opts.Permissive, opts.Heads, opts.Deps)
+	} else {
+		diffdModel, err = diffExact(idx, diffCfg, opts.Permissive, opts.Heads, opts.Deps)
+	}
+
+	return diffdModel, err
+}
+
+func diffFill(idx *PackageIndex, diffCfg DiffConfig, permissive, heads, deps bool) (diffdModel model.Model, err error) {
+	diffSet := make(map[string]map[string]map[string]struct{}, len(diffCfg.Packages))
+	for _, pkg := range diffCfg.Packages {
+		diffSet[pkg.Name] = make(map[string]map[string]struct{}, len(pkg.Channels))
 		for _, ch := range pkg.Channels {
-			pruneCfg[pkg.Name][ch.Name] = make(map[string]struct{}, len(ch.Bundles))
+			diffSet[pkg.Name][ch.Name] = make(map[string]struct{}, len(ch.Bundles))
 			for _, b := range ch.Bundles {
-				pruneCfg[pkg.Name][ch.Name][b] = struct{}{}
+				diffSet[pkg.Name][ch.Name][b] = struct{}{}
 			}
 		}
 	}
 
 	pkgNames := idx.GetPackageNames()
 	pkgNameSet := sets.NewString(pkgNames...)
-	prunedModel = model.Model{}
+	diffdModel = model.Model{}
 
 	// Add all channel heads from the full catalog to the model.
 	if heads {
@@ -84,7 +101,7 @@ func PruneKeep(idx *PackageIndex, pruneConfig PruneConfig, permissive, heads boo
 				return nil, err
 			}
 			cPkg := copyPackageEmptyChannels(pkg)
-			prunedModel[cPkg.Name] = cPkg
+			diffdModel[cPkg.Name] = cPkg
 			for _, ch := range pkg.Channels {
 				cCh := copyChannelEmptyBundles(ch, cPkg)
 				cPkg.Channels[cCh.Name] = cCh
@@ -92,17 +109,17 @@ func PruneKeep(idx *PackageIndex, pruneConfig PruneConfig, permissive, heads boo
 				if err != nil {
 					return nil, err
 				}
-				prunedModel.AddBundle(*copyBundle(head, cCh, cPkg))
+				diffdModel.AddBundle(*copyBundle(head, cCh, cPkg))
 			}
 		}
 	}
 
-	// Add all packages, channels, and bundles (package versions) in pruneCfg
+	// Add all packages, channels, and bundles (package versions) in diffSet
 	// from the full catalog to the model.
-	for pkgName, pruneChannels := range pruneCfg {
+	for pkgName, diffChannels := range diffSet {
 		if !pkgNameSet.Has(pkgName) {
 			if !permissive {
-				return nil, missingPruneKeyError{keyType: property.TypePackage, key: pkgName}
+				return nil, missingDiffKeyError{keyType: property.TypePackage, key: pkgName}
 			}
 			continue
 		}
@@ -111,19 +128,19 @@ func PruneKeep(idx *PackageIndex, pruneConfig PruneConfig, permissive, heads boo
 			return nil, err
 		}
 		if !heads {
-			prunedModel[pkgName] = copyPackageEmptyChannels(pkg)
+			diffdModel[pkgName] = copyPackageEmptyChannels(pkg)
 		}
-		cPkg := prunedModel[pkgName]
-		if len(pruneChannels) == 0 {
+		cPkg := diffdModel[pkgName]
+		if len(diffChannels) == 0 {
 			for _, ch := range pkg.Channels {
 				cPkg.Channels[ch.Name] = ch
 			}
 		}
-		for chName, pruneBundles := range pruneChannels {
+		for chName, diffBundles := range diffChannels {
 			ch, hasCh := pkg.Channels[chName]
 			if !hasCh {
 				if !permissive {
-					return nil, missingPruneKeyError{keyType: property.TypeChannel, key: chName}
+					return nil, missingDiffKeyError{keyType: property.TypeChannel, key: chName}
 				}
 				continue
 			}
@@ -132,16 +149,16 @@ func PruneKeep(idx *PackageIndex, pruneConfig PruneConfig, permissive, heads boo
 			}
 			cCh := cPkg.Channels[chName]
 			cPkg.Channels[cCh.Name] = cCh
-			if len(pruneBundles) == 0 {
+			if len(diffBundles) == 0 {
 				for _, b := range ch.Bundles {
-					prunedModel.AddBundle(*b)
+					diffdModel.AddBundle(*b)
 				}
 			}
-			for bName := range pruneBundles {
+			for bName := range diffBundles {
 				b, hasBundle := ch.Bundles[bName]
 				if !hasBundle {
 					if !permissive {
-						return nil, missingPruneKeyError{keyType: "olm.bundle", key: bName}
+						return nil, missingDiffKeyError{keyType: "olm.bundle", key: bName}
 					}
 					continue
 				}
@@ -150,30 +167,32 @@ func PruneKeep(idx *PackageIndex, pruneConfig PruneConfig, permissive, heads boo
 						continue
 					}
 				}
-				prunedModel.AddBundle(*copyBundle(b, cCh, cPkg))
+				diffdModel.AddBundle(*copyBundle(b, cCh, cPkg))
 			}
 		}
 	}
 
-	if err := addDependencies(idx, prunedModel); err != nil {
-		return nil, err
+	if deps {
+		if err := addDependencies(idx, diffdModel); err != nil {
+			return nil, err
+		}
 	}
 
-	fixReplaces(prunedModel)
+	fixReplaces(diffdModel)
 
-	return prunedModel, nil
+	return diffdModel, nil
 }
 
-func PruneRemove(idx *PackageIndex, pruneConfig PruneConfig, permissive, heads, withDeps bool) (diff model.Model, err error) {
-	pruneCfg := make(map[string]map[string]map[string]int, len(pruneConfig.Packages))
-	pkgLookup := make(map[string]Pkg, len(pruneConfig.Packages))
-	for _, pkg := range pruneConfig.Packages {
-		pruneCfg[pkg.Name] = make(map[string]map[string]int, len(pkg.Channels))
+func diffExact(idx *PackageIndex, diffCfg DiffConfig, permissive, heads, deps bool) (diff model.Model, err error) {
+	diffSet := make(map[string]map[string]map[string]int, len(diffCfg.Packages))
+	pkgLookup := make(map[string]DiffPackage, len(diffCfg.Packages))
+	for _, pkg := range diffCfg.Packages {
+		diffSet[pkg.Name] = make(map[string]map[string]int, len(pkg.Channels))
 		pkgLookup[pkg.Name] = pkg
 		for ci, ch := range pkg.Channels {
-			pruneCfg[pkg.Name][ch.Name] = make(map[string]int, len(ch.Bundles))
+			diffSet[pkg.Name][ch.Name] = make(map[string]int, len(ch.Bundles))
 			for _, b := range ch.Bundles {
-				pruneCfg[pkg.Name][ch.Name][b] = ci
+				diffSet[pkg.Name][ch.Name][b] = ci
 			}
 		}
 	}
@@ -186,12 +205,12 @@ func PruneRemove(idx *PackageIndex, pruneConfig PruneConfig, permissive, heads, 
 		if err != nil {
 			return nil, err
 		}
-		pruneCfgChannels, hasPkg := pruneCfg[newPkg.Name]
+		diffCfgChannels, hasPkg := diffSet[newPkg.Name]
 		if hasPkg || heads {
 			diffPkg := copyPackageEmptyChannels(newPkg)
 			diff[diffPkg.Name] = diffPkg
 		}
-		if !hasPkg || len(pruneCfgChannels) == 0 {
+		if !hasPkg || len(diffCfgChannels) == 0 {
 			if heads {
 				diffPkg := diff[newPkg.Name]
 				for _, newCh := range newPkg.Channels {
@@ -207,13 +226,13 @@ func PruneRemove(idx *PackageIndex, pruneConfig PruneConfig, permissive, heads, 
 			continue
 		}
 		diffPkg := diff[newPkg.Name]
-		for chName, pruneCfgBundles := range pruneCfgChannels {
+		for chName, diffCfgBundles := range diffCfgChannels {
 			newCh, hasCh := newPkg.Channels[chName]
 			if hasCh || heads {
 				diffCh := copyChannelEmptyBundles(newCh, diffPkg)
 				diffPkg.Channels[diffCh.Name] = diffCh
 			}
-			if !hasCh || len(pruneCfgBundles) == 0 {
+			if !hasCh || len(diffCfgBundles) == 0 {
 				if heads {
 					diffCh := diffPkg.Channels[newCh.Name]
 					head, err := newCh.Head()
@@ -232,7 +251,7 @@ func PruneRemove(idx *PackageIndex, pruneConfig PruneConfig, permissive, heads, 
 				allReplaces[b.Replaces] = append(allReplaces[b.Replaces], b)
 			}
 			diffCh := diffPkg.Channels[newCh.Name]
-			for bName, chIdx := range pruneCfgBundles {
+			for bName, chIdx := range diffCfgBundles {
 				if pkg, hasLPkg := pkgLookup[diffPkg.Name]; hasLPkg {
 					if ch := pkg.Channels[chIdx]; ch.Head == "" {
 						newBundle := newCh.Bundles[bName]
@@ -262,7 +281,7 @@ func PruneRemove(idx *PackageIndex, pruneConfig PruneConfig, permissive, heads, 
 		diffPkg.DefaultChannel = diffPkg.Channels[newPkg.DefaultChannel.Name]
 	}
 
-	if withDeps {
+	if deps {
 		if err := addDependencies(idx, diff); err != nil {
 			return nil, err
 		}
@@ -378,7 +397,7 @@ func diffChannelBetweenNodes(ch *model.Channel, start, end *model.Bundle, allRep
 func rangeAny(semver.Version) bool { return true }
 
 func addDependencies(idx *PackageIndex, m model.Model) (err error) {
-	// Find all dependencies in the pruned model.
+	// Find all dependencies in the diffd model.
 	reqGVKs := map[property.GVK]struct{}{}
 	reqPkgs := map[string][]semver.Range{}
 	for _, pkg := range m {
