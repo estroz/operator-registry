@@ -46,6 +46,7 @@ func (a Diff) Run(ctx context.Context) (*declcfg.DeclarativeConfig, error) {
 	var diffCfgs []declcfg.DiffConfig
 	for _, ref := range a.OldRefs {
 		if info, err := os.Stat(ref); err != nil || info.IsDir() {
+			fmt.Println("adding old", ref)
 			oldRender.Refs = append(oldRender.Refs, ref)
 			continue
 		}
@@ -73,6 +74,7 @@ func (a Diff) Run(ctx context.Context) (*declcfg.DeclarativeConfig, error) {
 	}
 
 	diffCfg := combineDiffConfigs(diffCfgs)
+	fmt.Println("diff config:", diffCfg)
 	opts := declcfg.DiffOptions{
 		Fill:       a.Fill,
 		Permissive: a.Permissive,
