@@ -4,9 +4,7 @@ import (
 	"sort"
 	"testing"
 
-	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 
 	"github.com/operator-framework/operator-registry/internal/model"
 )
@@ -63,15 +61,7 @@ func TestDiffChannelsFrom(t *testing.T) {
 	for _, s := range specs {
 		t.Run(s.name, func(t *testing.T) {
 			newCh := &model.Channel{Bundles: make(map[string]*model.Bundle, len(s.newBundles))}
-			allReplaces := map[string][]*model.Bundle{}
-			for _, b := range s.newBundles {
-				b := b
-				newCh.Bundles[b.Name] = b
-				if b.Replaces != "" {
-					allReplaces[b.Replaces] = append(allReplaces[b.Replaces], b)
-				}
-			}
-			output, err := diffChannelBetweenNodes(newCh, s.start, s.end, allReplaces)
+			output, err := diffChannelBetweenNodes(newCh, s.start, s.end)
 			assert.NoError(t, err)
 			sort.Slice(output, func(i, j int) bool {
 				return output[i].Name < output[j].Name
@@ -96,57 +86,4 @@ func collectBundleReplaces(bundles []*model.Bundle) (brs []bundleReplaces) {
 		brs = append(brs, bundleReplaces{Name: b.Name, Replaces: b.Replaces})
 	}
 	return
-}
-
-func TestPruneRemove(t *testing.T) {
-	oldPkg := &model.Package{Name: "old"}
-	oldCh := &model.Channel{Name: "alpha", Package: oldPkg}
-	oldPkg.Channels = map[string]*model.Channel{oldCh.Name: oldCh}
-	oldPkg.DefaultChannel = oldCh
-	oldBundle := &model.Bundle{Name: "operator.v0.1.0", Package: oldPkg, Channel: oldCh}
-	oldCh.Bundles = map[string]*model.Bundle{oldBundle.Name: oldBundle}
-
-	oldPkgCp := copyPackageEmptyChannels(oldPkg)
-	newModel := model.Model{oldPkgCp.Name: oldPkgCp}
-	oldChCp := copyChannelEmptyBundles(oldCh, oldPkgCp)
-	oldPkgCp.Channels = map[string]*model.Channel{oldChCp.Name: oldChCp}
-	oldPkgCp.DefaultChannel = oldChCp
-	newBundle := &model.Bundle{Name: "operator.v0.1.1", Package: oldPkgCp, Channel: oldChCp, Replaces: oldBundle.Name}
-	oldBundleCp := copyBundle(oldBundle, oldChCp, oldPkgCp)
-	oldChCp.Bundles = map[string]*model.Bundle{
-		oldBundleCp.Name: oldBundleCp,
-		newBundle.Name:   newBundle,
-	}
-
-	pruneConfig := DiffConfig{
-		Packages: []DiffPackage{
-			{Name: "old", Channels: []DiffChannel{
-				{Name: "alpha", Head: "operator.v0.1.0"}},
-			},
-		},
-	}
-
-	diff, err := diffExact(indexerFor(t, newModel), pruneConfig, false, false, false)
-	require.NoError(t, err)
-	require.NotNil(t, diff)
-	require.Contains(t, diff, oldPkg.Name)
-	require.Len(t, diff, 1)
-	require.Contains(t, diff, oldPkg.Name)
-	require.Len(t, diff[oldPkg.Name].Channels, 1)
-	require.Contains(t, diff[oldPkg.Name].Channels, oldCh.Name)
-	require.Equal(t, diff[oldPkg.Name].DefaultChannel.Name, oldCh.Name)
-	require.Len(t, diff[oldPkg.Name].Channels[oldCh.Name].Bundles, 1)
-	require.Contains(t, diff[oldPkg.Name].Channels[oldCh.Name].Bundles, newBundle.Name)
-}
-
-func indexerFor(t *testing.T, ms ...model.Model) *PackageIndex {
-	idx := &PackageIndex{
-		fs:          afero.NewMemMapFs(),
-		pkgEncoders: map[string]encoder{},
-	}
-	for _, m := range ms {
-		cfg := ConvertFromModel(m)
-		require.NoError(t, idx.Add(&cfg))
-	}
-	return idx
 }

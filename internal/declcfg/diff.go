@@ -29,7 +29,6 @@ type DiffPackage struct {
 	Name           string        `json:"name"`
 	Channels       []DiffChannel `json:"channels"`
 	DefaultChannel string        `json:"defaultChannel"`
-	Bundles        []string      `json:"bundles"`
 }
 
 type DiffChannel struct {
@@ -89,7 +88,7 @@ func convertDiffConfigToDiffModel(dcfg DiffConfig) diffModel {
 				Head:    ch.Head,
 				Bundles: make(map[string]struct{}, len(ch.Bundles)),
 			}
-			for _, b := range append(ch.Bundles, pkg.Bundles...) {
+			for _, b := range ch.Bundles {
 				dm[pkg.Name].Channels[ch.Name].Bundles[b] = struct{}{}
 			}
 		}
@@ -98,28 +97,24 @@ func convertDiffConfigToDiffModel(dcfg DiffConfig) diffModel {
 }
 
 type DiffOptions struct {
-	Heads      bool
-	Deps       bool
 	Permissive bool
-	Fill       bool
+
+	Heads   bool
+	Deps    bool
+	Fill    bool
+	Include bool
 }
 
-func DiffIndex(idx *PackageIndex, diffCfg DiffConfig, opts DiffOptions) (diffdModel model.Model, err error) {
-	if opts.Fill {
-		diffdModel, err = diffFill(idx, diffCfg, opts.Permissive, opts.Heads, opts.Deps)
-	} else {
-		diffdModel, err = diffExact(idx, diffCfg, opts.Permissive, opts.Heads, opts.Deps)
-	}
-
-	return diffdModel, err
+func DiffIndex(idx *PackageIndex, diffCfg DiffConfig, opts DiffOptions) (model.Model, error) {
+	return diff(idx, diffCfg, opts.Permissive, opts.Fill, opts.Include, opts.Heads, opts.Deps)
 }
 
-func diffFill(idx *PackageIndex, diffCfg DiffConfig, permissive, heads, deps bool) (diffdModel model.Model, err error) {
-	diffSet := convertDiffConfigToDiffModel(diffCfg)
+func diff(idx *PackageIndex, diffCfg DiffConfig, permissive, fill, include, heads, deps bool) (model.Model, error) {
+	dm := convertDiffConfigToDiffModel(diffCfg)
 
 	pkgNames := idx.GetPackageNames()
 	pkgNameSet := sets.NewString(pkgNames...)
-	diffdModel = model.Model{}
+	outputModel := model.Model{}
 
 	// Add all channel heads from the full catalog to the model.
 	if heads {
@@ -128,199 +123,147 @@ func diffFill(idx *PackageIndex, diffCfg DiffConfig, permissive, heads, deps boo
 			if err != nil {
 				return nil, err
 			}
-			cPkg := copyPackageEmptyChannels(pkg)
-			diffdModel[cPkg.Name] = cPkg
+			diffPkg := copyPackageEmptyChannels(pkg)
+			outputModel[diffPkg.Name] = diffPkg
 			for _, ch := range pkg.Channels {
-				cCh := copyChannelEmptyBundles(ch, cPkg)
-				cPkg.Channels[cCh.Name] = cCh
+				diffCh := copyChannelEmptyBundles(ch, diffPkg)
+				diffPkg.Channels[diffCh.Name] = diffCh
 				head, err := ch.Head()
 				if err != nil {
 					return nil, err
 				}
-				diffdModel.AddBundle(*copyBundle(head, cCh, cPkg))
+				outputModel.AddBundle(*copyBundle(head, diffCh, diffPkg))
 			}
 		}
 	}
 
-	// Add all packages, channels, and bundles (package versions) in diffSet
-	// from the full catalog to the model.
-	for pkgName, dpkg := range diffSet {
-		if !pkgNameSet.Has(pkgName) {
-			if !permissive {
-				return nil, missingDiffKeyError{keyType: property.TypePackage, key: pkgName}
-			}
-			continue
-		}
-		pkg, err := idx.LoadPackageModel(pkgName)
-		if err != nil {
-			return nil, err
-		}
-		if !heads {
-			diffdModel[pkgName] = copyPackageEmptyChannels(pkg)
-		}
-		cPkg := diffdModel[pkgName]
-		if len(dpkg.Channels) == 0 {
-			for _, ch := range pkg.Channels {
-				cPkg.Channels[ch.Name] = ch
-			}
-		}
-		for chName, dch := range dpkg.Channels {
-			ch, hasCh := pkg.Channels[chName]
-			if !hasCh {
+	if include {
+		// Add all packages, channels, and bundles (package versions) in dm
+		// from the full catalog to the model.
+		for pkgName, dpkg := range dm {
+			if !pkgNameSet.Has(pkgName) {
 				if !permissive {
-					return nil, missingDiffKeyError{keyType: property.TypeChannel, key: chName}
+					return nil, missingDiffKeyError{keyType: property.TypePackage, key: pkgName}
 				}
 				continue
+			}
+			pkg, err := idx.LoadPackageModel(pkgName)
+			if err != nil {
+				return nil, err
 			}
 			if !heads {
-				cPkg.Channels[chName] = copyChannelEmptyBundles(ch, cPkg)
+				outputModel[pkgName] = copyPackageEmptyChannels(pkg)
 			}
-			cCh := cPkg.Channels[chName]
-			cPkg.Channels[cCh.Name] = cCh
-			if len(dch.Bundles) == 0 {
-				for _, b := range ch.Bundles {
-					diffdModel.AddBundle(*b)
+			diffPkg := outputModel[pkgName]
+			if len(dpkg.Channels) == 0 {
+				for _, ch := range pkg.Channels {
+					diffPkg.Channels[ch.Name] = ch
 				}
 			}
-			for bName := range dch.Bundles {
-				b, hasBundle := ch.Bundles[bName]
-				if !hasBundle {
+			for _, dch := range dpkg.Channels {
+				ch, hasCh := pkg.Channels[dch.Name]
+				if !hasCh {
 					if !permissive {
-						return nil, missingDiffKeyError{keyType: "olm.bundle", key: bName}
+						return nil, missingDiffKeyError{keyType: property.TypeChannel, key: dch.Name}
 					}
 					continue
 				}
-				if heads {
-					if _, created := cCh.Bundles[bName]; created {
+				if !heads {
+					diffPkg.Channels[dch.Name] = copyChannelEmptyBundles(ch, diffPkg)
+				}
+				diffCh := diffPkg.Channels[dch.Name]
+				if len(dch.Bundles) == 0 {
+					for _, b := range ch.Bundles {
+						outputModel.AddBundle(*b)
+					}
+				}
+				for bName := range dch.Bundles {
+					b, hasBundle := ch.Bundles[bName]
+					if !hasBundle {
+						if !permissive {
+							return nil, missingDiffKeyError{keyType: "olm.bundle", key: bName}
+						}
 						continue
 					}
+					if heads {
+						if _, created := diffCh.Bundles[bName]; created {
+							continue
+						}
+					}
+					outputModel.AddBundle(*copyBundle(b, diffCh, diffPkg))
 				}
-				diffdModel.AddBundle(*copyBundle(b, cCh, cPkg))
+			}
+
+			_, hasDefault := diffPkg.Channels[pkg.DefaultChannel.Name]
+			if !hasDefault {
+				diffPkg.DefaultChannel = copyChannelEmptyBundles(pkg.DefaultChannel, diffPkg)
 			}
 		}
-	}
-
-	if deps {
-		if err := addDependencies(idx, diffdModel); err != nil {
+	} else if fill {
+		if err := fillFromOldHeads(idx, dm, outputModel, heads); err != nil {
 			return nil, err
 		}
 	}
 
-	fixReplaces(diffdModel)
+	if deps {
+		if err := addDependencies(idx, outputModel); err != nil {
+			return nil, err
+		}
+	}
 
-	return diffdModel, nil
+	fixReplaces(outputModel)
+
+	return outputModel, nil
 }
 
-func diffExact(idx *PackageIndex, diffCfg DiffConfig, permissive, heads, deps bool) (model.Model, error) {
-	diffSet := convertDiffConfigToDiffModel(diffCfg)
-
-	pkgNames := idx.GetPackageNames()
-	diff := model.Model{}
-
-	for _, pkgName := range pkgNames {
-		fmt.Println("in pkg", pkgName)
-		newPkg, err := idx.LoadPackageModel(pkgName)
+func fillFromOldHeads(idx *PackageIndex, dm diffModel, output model.Model, heads bool) error {
+	for _, diffPkg := range dm {
+		fmt.Println("in pkg", diffPkg.Name)
+		newPkg, err := idx.LoadPackageModel(diffPkg.Name)
 		if err != nil {
-			return nil, err
+			return err
 		}
-		dpkg, hasPkg := diffSet[newPkg.Name]
-		if hasPkg || heads {
-			diffPkg := copyPackageEmptyChannels(newPkg)
-			diff[diffPkg.Name] = diffPkg
+		if !heads {
+			output[diffPkg.Name] = copyPackageEmptyChannels(newPkg)
 		}
-		if !hasPkg || len(dpkg.Channels) == 0 {
-			if heads {
-				diffPkg := diff[newPkg.Name]
-				for _, newCh := range newPkg.Channels {
-					diffCh := copyChannelEmptyBundles(newCh, diffPkg)
-					diffPkg.Channels[diffCh.Name] = diffCh
-					head, err := newCh.Head()
-					if err != nil {
-						return nil, err
-					}
-					diff.AddBundle(*copyBundle(head, diffCh, diffPkg))
-				}
-			}
-			continue
-		}
-		diffPkg := diff[newPkg.Name]
-		for chName, dch := range dpkg.Channels {
-			fmt.Println("in ch", chName)
-			newCh, hasCh := newPkg.Channels[chName]
-			if hasCh || heads {
-				diffCh := copyChannelEmptyBundles(newCh, diffPkg)
-				diffPkg.Channels[diffCh.Name] = diffCh
-			}
-			if !hasCh || len(dch.Bundles) == 0 {
-				if heads {
-					diffCh := diffPkg.Channels[newCh.Name]
-					head, err := newCh.Head()
-					if err != nil {
-						return nil, err
-					}
-					diff.AddBundle(*copyBundle(head, diffCh, diffPkg))
-				}
+		outputPkg := output[diffPkg.Name]
+		for _, diffCh := range diffPkg.Channels {
+			newCh, hasCh := newPkg.Channels[diffCh.Name]
+			if !hasCh {
 				continue
 			}
-			allReplaces := map[string][]*model.Bundle{}
-			for _, b := range newCh.Bundles {
-				if b.Replaces == "" {
-					continue
-				}
-				allReplaces[b.Replaces] = append(allReplaces[b.Replaces], b)
+			fmt.Println("in ch", diffCh.Name)
+			oldHeadName := diffCh.Head
+			if oldHeadName == "" {
+				return fmt.Errorf("diff model package %q channel %q must specify a head bundle",
+					diffPkg.Name, diffCh.Name)
 			}
-			diffCh := diffPkg.Channels[newCh.Name]
-			if dch.Head != "" {
-				oldHead, hasHead := newCh.Bundles[dch.Head]
-				if !hasHead {
-					fmt.Println("no head", dch.Head)
-					// TODO: request full package to find intersection.
-					continue
-				}
-				newHead, err := newCh.Head()
-				if err != nil {
-					return nil, err
-				}
-				fmt.Printf("old head %s, new head %s\n", oldHead.Name, newHead.Name)
-				bundleDiff, err := diffChannelBetweenNodes(newCh, oldHead, newHead, allReplaces)
-				if err != nil {
-					return nil, err
-				}
-				for _, newBundle := range bundleDiff {
-					fmt.Println("new bundle:", newBundle.Name)
-					diff.AddBundle(*copyBundle(newBundle, diffCh, diffPkg))
-				}
+			oldHead, hasHead := newCh.Bundles[oldHeadName]
+			if !hasHead {
+				return fmt.Errorf("diff model package %q channel %q head %q not found in input model",
+					diffPkg.Name, diffCh.Name, oldHeadName)
 			}
-			for bName := range dch.Bundles {
-				fmt.Println("adding", bName)
-				if _, added := diffCh.Bundles[bName]; added {
-					continue
-				}
-				if newBundle, hasBundle := newCh.Bundles[bName]; hasBundle {
-					diff.AddBundle(*copyBundle(newBundle, diffCh, diffPkg))
-				} else if !permissive {
-					return nil, missingDiffKeyError{keyType: "olm.bundle", key: bName}
-				}
+			newHead, err := newCh.Head()
+			if err != nil {
+				return err
 			}
-		}
-
-		_, hasDefault := diffPkg.Channels[newPkg.DefaultChannel.Name]
-		if !hasDefault {
-			diffPkg.DefaultChannel = copyChannelEmptyBundles(newPkg.DefaultChannel, diffPkg)
+			fmt.Printf("old head %s, new head %s\n", oldHead.Name, newHead.Name)
+			bundleDiff, err := diffChannelBetweenNodes(newCh, oldHead, newHead)
+			if err != nil {
+				return err
+			}
+			if !heads {
+				outputPkg.Channels[newCh.Name] = copyChannelEmptyBundles(newCh, outputPkg)
+			}
+			outputCh := outputPkg.Channels[newCh.Name]
+			for _, newBundle := range bundleDiff {
+				fmt.Println("new bundle:", newBundle.Name)
+				output.AddBundle(*copyBundle(newBundle, outputCh, outputPkg))
+			}
 		}
 	}
 
-	if deps {
-		if err := addDependencies(idx, diff); err != nil {
-			return nil, err
-		}
-	}
-
-	fixReplaces(diff)
-
-	fmt.Println()
-
-	return diff, nil
+	return nil
 }
 
 func copyPackageEmptyChannels(in *model.Package) *model.Package {
@@ -367,7 +310,7 @@ func copyBundle(in *model.Bundle, ch *model.Channel, pkg *model.Package) *model.
 	return cp
 }
 
-func diffChannelBetweenNodes(ch *model.Channel, start, end *model.Bundle, allReplaces map[string][]*model.Bundle) (replacingBundles []*model.Bundle, err error) {
+func diffChannelBetweenNodes(ch *model.Channel, start, end *model.Bundle) (replacingBundles []*model.Bundle, err error) {
 	// There is no diff if start is end.
 	if start.Name == end.Name {
 		return nil, nil
@@ -399,6 +342,13 @@ func diffChannelBetweenNodes(ch *model.Channel, start, end *model.Bundle, allRep
 
 	// Find all bundles that replace the intersection via BFS,
 	// i.e. the set of bundles that fill the update graph between start and end.
+	allReplaces := map[string][]*model.Bundle{}
+	for _, b := range ch.Bundles {
+		if b.Replaces == "" {
+			continue
+		}
+		allReplaces[b.Replaces] = append(allReplaces[b.Replaces], b)
+	}
 	replacesIntersection := allReplaces[intersection]
 	replacesSet := map[string]*model.Bundle{}
 	for _, b := range replacesIntersection {
