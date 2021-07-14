@@ -12,7 +12,7 @@ type deprecated struct{}
 
 const deprecatedType = "olm.deprecated"
 
-func TestDiffPackages(t *testing.T) {
+func TestDiffLatest(t *testing.T) {
 	type spec struct {
 		name       string
 		oldBundles []Bundle
@@ -25,7 +25,7 @@ func TestDiffPackages(t *testing.T) {
 
 	specs := []spec{
 		{
-			name:       "Success/Empty",
+			name:       "NoDiff/Empty",
 			oldBundles: []Bundle{},
 			newBundles: []Bundle{},
 			expCfg:     DeclarativeConfig{},
@@ -39,7 +39,7 @@ func TestDiffPackages(t *testing.T) {
 					Package: "foo",
 					Image:   "reg/foo:latest",
 					Properties: []property.Property{
-						property.MustBuildPackage("foo", ""),
+						property.MustBuildPackage("foo", "0.1.0"),
 						property.MustBuildChannel("stable", ""),
 					},
 				},
@@ -51,7 +51,7 @@ func TestDiffPackages(t *testing.T) {
 					Package: "foo",
 					Image:   "reg/foo:latest",
 					Properties: []property.Property{
-						property.MustBuildPackage("foo", ""),
+						property.MustBuildPackage("foo", "0.1.0"),
 						property.MustBuildChannel("stable", ""),
 					},
 				},
@@ -67,7 +67,7 @@ func TestDiffPackages(t *testing.T) {
 					Package: "foo",
 					Image:   "reg/foo:latest",
 					Properties: []property.Property{
-						property.MustBuildPackage("foo", ""),
+						property.MustBuildPackage("foo", "0.1.0"),
 						property.MustBuildChannel("stable", ""),
 					},
 				},
@@ -80,7 +80,7 @@ func TestDiffPackages(t *testing.T) {
 					Image:   "reg/foo:latest",
 					Properties: []property.Property{
 						property.MustBuildChannel("stable", ""),
-						property.MustBuildPackage("foo", ""),
+						property.MustBuildPackage("foo", "0.1.0"),
 					},
 				},
 			},
@@ -95,7 +95,7 @@ func TestDiffPackages(t *testing.T) {
 					Package: "foo",
 					Image:   "reg/foo:latest",
 					Properties: []property.Property{
-						property.MustBuildPackage("foo", ""),
+						property.MustBuildPackage("foo", "0.1.0"),
 						property.MustBuildChannel("stable", ""),
 					},
 				},
@@ -107,7 +107,7 @@ func TestDiffPackages(t *testing.T) {
 					Package: "foo",
 					Image:   "reg/foo:latest",
 					Properties: []property.Property{
-						property.MustBuildPackage("foo", ""),
+						property.MustBuildPackage("foo", "0.1.0"),
 						property.MustBuildChannel("stable", ""),
 						property.MustBuildPackageRequired("bar", ">=1.0.0"),
 					},
@@ -124,7 +124,7 @@ func TestDiffPackages(t *testing.T) {
 						Package: "foo",
 						Image:   "reg/foo:latest",
 						Properties: []property.Property{
-							property.MustBuildPackage("foo", ""),
+							property.MustBuildPackage("foo", "0.1.0"),
 							property.MustBuildChannel("stable", ""),
 							property.MustBuildPackageRequired("bar", ">=1.0.0"),
 						},
@@ -141,7 +141,7 @@ func TestDiffPackages(t *testing.T) {
 					Package: "foo",
 					Image:   "reg/foo:latest",
 					Properties: []property.Property{
-						property.MustBuildPackage("foo", ""),
+						property.MustBuildPackage("foo", "0.1.0"),
 						property.MustBuildChannel("stable", ""),
 					},
 				},
@@ -151,7 +151,7 @@ func TestDiffPackages(t *testing.T) {
 					Package: "foo",
 					Image:   "reg/foo:latest",
 					Properties: []property.Property{
-						property.MustBuildPackage("foo", ""),
+						property.MustBuildPackage("foo", "0.2.0-alpha.0"),
 						property.MustBuildChannel("fast", ""),
 					},
 				},
@@ -161,7 +161,7 @@ func TestDiffPackages(t *testing.T) {
 					Package: "foo",
 					Image:   "reg/foo:latest",
 					Properties: []property.Property{
-						property.MustBuildPackage("foo", ""),
+						property.MustBuildPackage("foo", "0.2.0-alpha.1"),
 						property.MustBuildChannel("fast", "foo.v0.2.0-alpha.0"),
 					},
 				},
@@ -173,7 +173,7 @@ func TestDiffPackages(t *testing.T) {
 					Package: "foo",
 					Image:   "reg/foo:latest",
 					Properties: []property.Property{
-						property.MustBuildPackage("foo", ""),
+						property.MustBuildPackage("foo", "0.1.0"),
 						property.MustBuildChannel("stable", ""),
 						property.MustBuild(&deprecated{}),
 					},
@@ -184,7 +184,7 @@ func TestDiffPackages(t *testing.T) {
 					Package: "foo",
 					Image:   "reg/foo:latest",
 					Properties: []property.Property{
-						property.MustBuildPackage("foo", ""),
+						property.MustBuildPackage("foo", "0.2.0"),
 						property.MustBuildChannel("stable", ""),
 						property.MustBuildSkips("foo.v0.1.0"),
 					},
@@ -195,7 +195,7 @@ func TestDiffPackages(t *testing.T) {
 					Package: "foo",
 					Image:   "reg/foo:latest",
 					Properties: []property.Property{
-						property.MustBuildPackage("foo", ""),
+						property.MustBuildPackage("foo", "0.2.0-alpha.0"),
 						property.MustBuildChannel("fast", ""),
 					},
 				},
@@ -205,7 +205,7 @@ func TestDiffPackages(t *testing.T) {
 					Package: "foo",
 					Image:   "reg/foo:latest",
 					Properties: []property.Property{
-						property.MustBuildPackage("foo", ""),
+						property.MustBuildPackage("foo", "0.2.0-alpha.1"),
 						property.MustBuildChannel("fast", "foo.v0.2.0-alpha.0"),
 					},
 				},
@@ -215,7 +215,7 @@ func TestDiffPackages(t *testing.T) {
 					Package: "foo",
 					Image:   "reg/foo:latest",
 					Properties: []property.Property{
-						property.MustBuildPackage("foo", ""),
+						property.MustBuildPackage("foo", "0.1.0-clusterwide"),
 						property.MustBuildChannel("clusterwide", ""),
 					},
 				},
@@ -231,7 +231,7 @@ func TestDiffPackages(t *testing.T) {
 						Package: "foo",
 						Image:   "reg/foo:latest",
 						Properties: []property.Property{
-							property.MustBuildPackage("foo", ""),
+							property.MustBuildPackage("foo", "0.1.0"),
 							property.MustBuildChannel("stable", ""),
 							property.MustBuild(&deprecated{}),
 						},
@@ -242,7 +242,7 @@ func TestDiffPackages(t *testing.T) {
 						Package: "foo",
 						Image:   "reg/foo:latest",
 						Properties: []property.Property{
-							property.MustBuildPackage("foo", ""),
+							property.MustBuildPackage("foo", "0.1.0-clusterwide"),
 							property.MustBuildChannel("clusterwide", ""),
 						},
 					},
@@ -252,9 +252,397 @@ func TestDiffPackages(t *testing.T) {
 						Package: "foo",
 						Image:   "reg/foo:latest",
 						Properties: []property.Property{
-							property.MustBuildPackage("foo", ""),
+							property.MustBuildPackage("foo", "0.2.0"),
 							property.MustBuildChannel("stable", ""),
 							property.MustBuildSkips("foo.v0.1.0"),
+						},
+					},
+				},
+			},
+		},
+		{
+			name: "HasDiff/OldBundleHasDependencyRange",
+			oldBundles: []Bundle{
+				{
+					Schema:  schemaBundle,
+					Name:    "foo.v0.1.0",
+					Package: "foo",
+					Image:   "reg/foo:latest",
+					Properties: []property.Property{
+						property.MustBuildPackage("foo", "0.1.0"),
+						property.MustBuildChannel("stable", ""),
+					},
+				},
+				{
+					Schema:  schemaBundle,
+					Name:    "etcd.v0.9.1",
+					Package: "etcd",
+					Image:   "reg/etcd:latest",
+					Properties: []property.Property{
+						property.MustBuildPackage("etcd", "0.9.1"),
+						property.MustBuildChannel("stable", ""),
+					},
+				},
+			},
+			newBundles: []Bundle{
+				{
+					Schema:  schemaBundle,
+					Name:    "foo.v0.1.0",
+					Package: "foo",
+					Image:   "reg/foo:latest",
+					Properties: []property.Property{
+						property.MustBuildPackage("foo", "0.1.0"),
+						property.MustBuildChannel("stable", ""),
+						property.MustBuildPackageRequired("etcd", ">=0.9.0"),
+					},
+				},
+				{
+					Schema:  schemaBundle,
+					Name:    "etcd.v0.9.1",
+					Package: "etcd",
+					Image:   "reg/etcd:latest",
+					Properties: []property.Property{
+						property.MustBuildPackage("etcd", "0.9.1"),
+						property.MustBuildChannel("stable", ""),
+					},
+				},
+			},
+			expCfg: DeclarativeConfig{
+				Packages: []Package{
+					{Schema: schemaPackage, Name: "foo", DefaultChannel: "stable"},
+				},
+				Bundles: []Bundle{
+					{
+						Schema:  schemaBundle,
+						Name:    "foo.v0.1.0",
+						Package: "foo",
+						Image:   "reg/foo:latest",
+						Properties: []property.Property{
+							property.MustBuildPackage("foo", "0.1.0"),
+							property.MustBuildChannel("stable", ""),
+							property.MustBuildPackageRequired("etcd", ">=0.9.0"),
+						},
+					},
+				},
+			},
+		},
+		{
+			name: "HasDiff/BundleNewDependencyRange",
+			oldBundles: []Bundle{
+				{
+					Schema:  schemaBundle,
+					Name:    "foo.v0.1.0",
+					Package: "foo",
+					Image:   "reg/foo:latest",
+					Properties: []property.Property{
+						property.MustBuildPackage("foo", "0.1.0"),
+						property.MustBuildChannel("stable", ""),
+					},
+				},
+			},
+			newBundles: []Bundle{
+				{
+					Schema:  schemaBundle,
+					Name:    "foo.v0.1.0",
+					Package: "foo",
+					Image:   "reg/foo:latest",
+					Properties: []property.Property{
+						property.MustBuildPackage("foo", "0.1.0"),
+						property.MustBuildChannel("stable", ""),
+						property.MustBuildPackageRequired("etcd", ">=0.9.0"),
+					},
+				},
+				{
+					Schema:  schemaBundle,
+					Name:    "etcd.v0.9.1",
+					Package: "etcd",
+					Image:   "reg/etcd:latest",
+					Properties: []property.Property{
+						property.MustBuildPackage("etcd", "0.9.1"),
+						property.MustBuildChannel("stable", ""),
+					},
+				},
+			},
+			expCfg: DeclarativeConfig{
+				Packages: []Package{
+					{Schema: schemaPackage, Name: "etcd", DefaultChannel: "stable"},
+					{Schema: schemaPackage, Name: "foo", DefaultChannel: "stable"},
+				},
+				Bundles: []Bundle{
+					{
+						Schema:  schemaBundle,
+						Name:    "etcd.v0.9.1",
+						Package: "etcd",
+						Image:   "reg/etcd:latest",
+						Properties: []property.Property{
+							property.MustBuildPackage("etcd", "0.9.1"),
+							property.MustBuildChannel("stable", ""),
+						},
+					},
+					{
+						Schema:  schemaBundle,
+						Name:    "foo.v0.1.0",
+						Package: "foo",
+						Image:   "reg/foo:latest",
+						Properties: []property.Property{
+							property.MustBuildPackage("foo", "0.1.0"),
+							property.MustBuildChannel("stable", ""),
+							property.MustBuildPackageRequired("etcd", ">=0.9.0"),
+						},
+					},
+				},
+			},
+		},
+		{
+			name: "HasDiff/NewBundleNewDependencyRange",
+			oldBundles: []Bundle{
+				{
+					Schema:  schemaBundle,
+					Name:    "foo.v0.1.0",
+					Package: "foo",
+					Image:   "reg/foo:latest",
+					Properties: []property.Property{
+						property.MustBuildPackage("foo", "0.1.0"),
+						property.MustBuildChannel("stable", ""),
+					},
+				},
+			},
+			newBundles: []Bundle{
+				{
+					Schema:  schemaBundle,
+					Name:    "foo.v0.1.0",
+					Package: "foo",
+					Image:   "reg/foo:latest",
+					Properties: []property.Property{
+						property.MustBuildPackage("foo", "0.1.0"),
+						property.MustBuildChannel("stable", ""),
+					},
+				},
+				{
+					Schema:  schemaBundle,
+					Name:    "foo.v0.1.0-clusterwide",
+					Package: "foo",
+					Image:   "reg/foo:latest",
+					Properties: []property.Property{
+						property.MustBuildPackage("foo", "0.1.0-clusterwide"),
+						property.MustBuildChannel("clusterwide", ""),
+						property.MustBuildPackageRequired("etcd", ">=0.9.0"),
+					},
+				},
+				{
+					Schema:  schemaBundle,
+					Name:    "etcd.v0.9.1",
+					Package: "etcd",
+					Image:   "reg/etcd:latest",
+					Properties: []property.Property{
+						property.MustBuildPackage("etcd", "0.9.1"),
+						property.MustBuildChannel("stable", ""),
+					},
+				},
+			},
+			expCfg: DeclarativeConfig{
+				Packages: []Package{
+					{Schema: schemaPackage, Name: "etcd", DefaultChannel: "stable"},
+					{Schema: schemaPackage, Name: "foo", DefaultChannel: "stable"},
+				},
+				Bundles: []Bundle{
+					{
+						Schema:  schemaBundle,
+						Name:    "etcd.v0.9.1",
+						Package: "etcd",
+						Image:   "reg/etcd:latest",
+						Properties: []property.Property{
+							property.MustBuildPackage("etcd", "0.9.1"),
+							property.MustBuildChannel("stable", ""),
+						},
+					},
+					{
+						Schema:  schemaBundle,
+						Name:    "foo.v0.1.0-clusterwide",
+						Package: "foo",
+						Image:   "reg/foo:latest",
+						Properties: []property.Property{
+							property.MustBuildPackage("foo", "0.1.0-clusterwide"),
+							property.MustBuildChannel("clusterwide", ""),
+							property.MustBuildPackageRequired("etcd", ">=0.9.0"),
+						},
+					},
+				},
+			},
+		},
+		{
+			name: "HasDiff/TwoBundlesDifferentDependenciesRange",
+			oldBundles: []Bundle{
+				{
+					Schema:  schemaBundle,
+					Name:    "foo.v0.1.0",
+					Package: "foo",
+					Image:   "reg/foo:latest",
+					Properties: []property.Property{
+						property.MustBuildPackage("foo", "0.1.0"),
+						property.MustBuildChannel("stable", ""),
+					},
+				},
+			},
+			newBundles: []Bundle{
+				{
+					Schema:  schemaBundle,
+					Name:    "foo.v0.1.0",
+					Package: "foo",
+					Image:   "reg/foo:latest",
+					Properties: []property.Property{
+						property.MustBuildPackage("foo", "0.1.0"),
+						property.MustBuildChannel("stable", ""),
+						property.MustBuildPackageRequired("etcd", ">=0.9.0 <0.9.2"),
+					},
+				},
+				{
+					Schema:  schemaBundle,
+					Name:    "foo.v0.2.0",
+					Package: "foo",
+					Image:   "reg/foo:latest",
+					Properties: []property.Property{
+						property.MustBuildPackage("foo", "0.2.0"),
+						property.MustBuildChannel("stable", "foo.v0.1.0"),
+						property.MustBuildPackageRequired("etcd", ">=0.9.2"),
+					},
+				},
+				{
+					Schema:  schemaBundle,
+					Name:    "etcd.v0.9.1",
+					Package: "etcd",
+					Image:   "reg/etcd:latest",
+					Properties: []property.Property{
+						property.MustBuildPackage("etcd", "0.9.1"),
+						property.MustBuildChannel("stable", ""),
+					},
+				},
+				{
+					Schema:  schemaBundle,
+					Name:    "etcd.v0.9.2",
+					Package: "etcd",
+					Image:   "reg/etcd:latest",
+					Properties: []property.Property{
+						property.MustBuildPackage("etcd", "0.9.2"),
+						property.MustBuildChannel("stable", "etcd.v0.9.1"),
+					},
+				},
+			},
+			expCfg: DeclarativeConfig{
+				Packages: []Package{
+					{Schema: schemaPackage, Name: "etcd", DefaultChannel: "stable"},
+					{Schema: schemaPackage, Name: "foo", DefaultChannel: "stable"},
+				},
+				Bundles: []Bundle{
+					{
+						Schema:  schemaBundle,
+						Name:    "etcd.v0.9.1",
+						Package: "etcd",
+						Image:   "reg/etcd:latest",
+						Properties: []property.Property{
+							property.MustBuildPackage("etcd", "0.9.1"),
+							property.MustBuildChannel("stable", ""),
+						},
+					},
+					{
+						Schema:  schemaBundle,
+						Name:    "etcd.v0.9.2",
+						Package: "etcd",
+						Image:   "reg/etcd:latest",
+						Properties: []property.Property{
+							property.MustBuildPackage("etcd", "0.9.2"),
+							property.MustBuildChannel("stable", "etcd.v0.9.1"),
+						},
+					},
+					{
+						Schema:  schemaBundle,
+						Name:    "foo.v0.1.0",
+						Package: "foo",
+						Image:   "reg/foo:latest",
+						Properties: []property.Property{
+							property.MustBuildPackage("foo", "0.1.0"),
+							property.MustBuildChannel("stable", ""),
+							property.MustBuildPackageRequired("etcd", ">=0.9.0 <0.9.2"),
+						},
+					},
+					{
+						Schema:  schemaBundle,
+						Name:    "foo.v0.2.0",
+						Package: "foo",
+						Image:   "reg/foo:latest",
+						Properties: []property.Property{
+							property.MustBuildPackage("foo", "0.2.0"),
+							property.MustBuildChannel("stable", "foo.v0.1.0"),
+							property.MustBuildPackageRequired("etcd", ">=0.9.2"),
+						},
+					},
+				},
+			},
+		},
+		{
+			name: "HasDiff/BundleNewDependencyGVK",
+			oldBundles: []Bundle{
+				{
+					Schema:  schemaBundle,
+					Name:    "foo.v0.1.0",
+					Package: "foo",
+					Image:   "reg/foo:latest",
+					Properties: []property.Property{
+						property.MustBuildPackage("foo", "0.1.0"),
+						property.MustBuildChannel("stable", ""),
+					},
+				},
+			},
+			newBundles: []Bundle{
+				{
+					Schema:  schemaBundle,
+					Name:    "foo.v0.1.0",
+					Package: "foo",
+					Image:   "reg/foo:latest",
+					Properties: []property.Property{
+						property.MustBuildPackage("foo", "0.1.0"),
+						property.MustBuildChannel("stable", ""),
+						property.MustBuildGVKRequired("etcd.database.coreos.com", "v1beta2", "EtcdBackup"),
+					},
+				},
+				{
+					Schema:  schemaBundle,
+					Name:    "etcd.v0.9.1",
+					Package: "etcd",
+					Image:   "reg/etcd:latest",
+					Properties: []property.Property{
+						property.MustBuildPackage("etcd", "0.9.1"),
+						property.MustBuildChannel("stable", ""),
+						property.MustBuildGVK("etcd.database.coreos.com", "v1beta2", "EtcdBackup"),
+					},
+				},
+			},
+			expCfg: DeclarativeConfig{
+				Packages: []Package{
+					{Schema: schemaPackage, Name: "etcd", DefaultChannel: "stable"},
+					{Schema: schemaPackage, Name: "foo", DefaultChannel: "stable"},
+				},
+				Bundles: []Bundle{
+					{
+						Schema:  schemaBundle,
+						Name:    "etcd.v0.9.1",
+						Package: "etcd",
+						Image:   "reg/etcd:latest",
+						Properties: []property.Property{
+							property.MustBuildPackage("etcd", "0.9.1"),
+							property.MustBuildChannel("stable", ""),
+							property.MustBuildGVK("etcd.database.coreos.com", "v1beta2", "EtcdBackup"),
+						},
+					},
+					{
+						Schema:  schemaBundle,
+						Name:    "foo.v0.1.0",
+						Package: "foo",
+						Image:   "reg/foo:latest",
+						Properties: []property.Property{
+							property.MustBuildPackage("foo", "0.1.0"),
+							property.MustBuildChannel("stable", ""),
+							property.MustBuildGVKRequired("etcd.database.coreos.com", "v1beta2", "EtcdBackup"),
 						},
 					},
 				},

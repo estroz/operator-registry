@@ -30,6 +30,15 @@ type Icon struct {
 	MediaType string `json:"mediatype"`
 }
 
+// Bundle specifies all metadata and data of a bundle object.
+// Top-level fields are the source of truth, i.e. not CSV values.
+//
+// Notes:
+// - Any field slice type field or type containing a slice somewhere
+//   where two types/fields are equal if their contents are equal regardless
+//   of order must have a `hash:"set"` field tag for bundle comparison.
+// - Any fields that have a `json:"-"` tag must be included in the equality
+//   evaluation in bundlesEqual().
 type Bundle struct {
 	Schema        string              `json:"schema"`
 	Name          string              `json:"name"`

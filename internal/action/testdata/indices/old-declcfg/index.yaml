@@ -10,15 +10,15 @@ properties:
 - type: olm.channel
   value:
     name: alpha
-- type: olm.package
-  value:
-    packageName: bar
-    version: 0.1.0
 - type: olm.gvk
   value:
     group: test.bar
     kind: Bar
     version: v1alpha1
+- type: olm.package
+  value:
+    packageName: bar
+    version: 0.1.0
 - type: olm.bundle.object
   value:
     data: eyJhcGlWZXJzaW9uIjoib3BlcmF0b3JzLmNvcmVvcy5jb20vdjFhbHBoYTEiLCJraW5kIjoiQ2x1c3RlclNlcnZpY2VWZXJzaW9uIiwibWV0YWRhdGEiOnsibmFtZSI6ImJhci52MC4xLjAifSwic3BlYyI6eyJjdXN0b21yZXNvdXJjZWRlZmluaXRpb25zIjp7Im93bmVkIjpbeyJncm91cCI6InRlc3QuYmFyIiwia2luZCI6IkJhciIsIm5hbWUiOiJiYXJzLnRlc3QuYmFyIiwidmVyc2lvbiI6InYxYWxwaGExIn1dfSwicmVsYXRlZEltYWdlcyI6W3siaW1hZ2UiOiJ0ZXN0LnJlZ2lzdHJ5L2Jhci1vcGVyYXRvci9iYXI6djAuMS4wIiwibmFtZSI6Im9wZXJhdG9yIn1dLCJ2ZXJzaW9uIjoiMC4xLjAifX0=
